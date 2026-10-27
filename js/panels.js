@@ -74,6 +74,14 @@
   };
 
   function importFiles(files, opts) {
+    // Plans (PDF or images that are not GeoTIFFs) open in the georeferencer.
+    var plans = GC.georef ? files.filter(function (f) { return GC.georef.isPlan(f.name); }) : [];
+    if (plans.length) {
+      files = files.filter(function (f) { return plans.indexOf(f) < 0; });
+      GC.georef.start(plans[0]);
+      if (plans.length > 1) GC.toast('Plans are placed one at a time. Import the others after this one.', 'warn');
+      if (!files.length) return Promise.resolve();
+    }
     GC.busy('Reading ' + files.length + (files.length === 1 ? ' file' : ' files') + '…');
     var added = [], report = { failures: [], warnings: [], skipped: [] };
     return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
@@ -210,6 +218,7 @@
         return;
       }
     }
+    if (GC.cadastre && GC.cadastre.identify(e.latlng)) return; // a lot, when lot boundaries are on
     GC.closeInspector();
   };
   // ---------- Google Earth style balloons ----------
@@ -517,7 +526,7 @@
   // ======================= search =======================
   var searchMarker = null;
   $('btn-search').onclick = function () {
-    GC.modal('<h2>Search</h2><p class="sub">A place or address, or coordinates: “-27.56, 151.95”, “27°33′S 151°57′E” or MGA “56 396000 6951000”.</p>' +
+    GC.modal('<h2>Search</h2><p class="sub">A place or address, a lot/plan (“3RP123456” or “Lot 3 on RP123456”), or coordinates: “-27.56, 151.95”, “27°33′S 151°57′E” or MGA “56 396000 6951000”.</p>' +
       '<div style="display:flex;gap:8px"><input type="text" id="s-q" placeholder="e.g. Picnic Point, Toowoomba" style="flex:1"><button class="btn primary" id="s-go">Search</button></div><div class="list" id="s-res"></div>',
       function (el, close) {
         var q = el.querySelector('#s-q'), res = el.querySelector('#s-res');
@@ -525,6 +534,8 @@
           var text = q.value.trim(); if (!text) return;
           var ll = Geo.parseCoordinate(text);
           if (ll) { close(); flyTo(ll[1], ll[0], text); return; }
+          var lot = GC.cadastre && GC.cadastre.find(text); // lot/plan, e.g. 3RP123456 or "Lot 3 on RP123456"
+          if (lot) { res.innerHTML = '<p class="hint">Looking up the lot…</p>'; lot.then(function () { close(); }, function (e) { res.innerHTML = '<p class="fail">' + esc(e.message) + '</p>'; }); return; }
           res.innerHTML = '<p class="hint">Searching…</p>';
           var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=au&viewbox=151.3,-27.0,152.6,-28.1&q=' + encodeURIComponent(text);
           fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); }).then(function (list) {
@@ -615,6 +626,7 @@
           });
         }).catch(function () { /* original not available: skip */ });
       });
+      p.layers.forEach(function (l) { if (ids.indexOf(l.id) >= 0 && l.kind === 'raster' && l.dataURL) z.file(Exporters.overlayFile(l), l.dataURL.split(',')[1], { base64: true }); });
       return Promise.all(carry.concat(photoIds.map(function (id) { return GC.photos.blob(id).then(function (b) { if (b) z.file('files/' + id + '.jpg', b); }); })))
         .then(function () { return z.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.google-earth.kmz' }); })
         .then(function (b) { return { blob: b, name: base + '.kmz', note: photoIds.length ? photoIds.length + ' photo' + (photoIds.length === 1 ? '' : 's') + ' included; they show in the Google Earth balloons.' : undefined }; });

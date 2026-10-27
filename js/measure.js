@@ -87,7 +87,8 @@
   function click(e) {
     if (!M.on) return false;
     if (Date.now() - M.lastTrace < 450) return true; // the click that ends a trace or a handle drag
-    M.pts.push({ ll: e.latlng, h: true, cut: true });
+    var snapped = GC.cadastre && GC.cadastre.snap(e.latlng, 14); // lot corners, when lot boundaries are on
+    M.pts.push({ ll: snapped || e.latlng, h: true, cut: true });
     render();
     return true;
   }

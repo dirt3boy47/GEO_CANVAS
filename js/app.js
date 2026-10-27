@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-27.6' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -180,6 +180,7 @@
       v.pane.style.zIndex = String(210 + Math.min(i, 380));
       v.pane.style.display = l.visible ? '' : 'none';
       v.pane.style.opacity = String(l.opacity == null ? 1 : l.opacity);
+      v.pane.style.mixBlendMode = l.kind === 'raster' && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
     });
   };
 
@@ -301,6 +302,31 @@
     return L.divIcon({ className: 'gc-pm', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html: '<img src="' + GC.esc(url) + '" alt="" style="width:' + size + 'px;height:' + size + 'px;display:block;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))">' });
   };
 
+  /** An image placed by three corners (top-left, top-right, bottom-left), so it can be rotated, scaled and skewed:
+      georeferenced plans. Drawn as one <img> with a CSS matrix, which follows the map's zoom animation. */
+  GC.AffineImage = L.Layer.extend({
+    initialize: function (url, corners, options) { this._url = url; this._corners = corners; L.setOptions(this, options); },
+    onAdd: function () {
+      var img = this._img = L.DomUtil.create('img', 'leaflet-image-layer gc-affine leaflet-zoom-animated'), self = this;
+      img.style.position = 'absolute'; img.style.left = '0'; img.style.top = '0';
+      img.style.webkitTransformOrigin = img.style.transformOrigin = '0 0'; img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
+      img.onload = function () { self._w = img.naturalWidth; self._h = img.naturalHeight; img.style.width = self._w + 'px'; img.style.height = self._h + 'px'; self._reset(); };
+      img.alt = ''; img.src = this._url;
+      this.getPane().appendChild(img);
+    },
+    onRemove: function () { L.DomUtil.remove(this._img); },
+    getEvents: function () { return { zoom: this._reset, viewreset: this._reset, zoomanim: this._animateZoom }; },
+    setCorners: function (c) { this._corners = c; this._reset(); return this; },
+    _apply: function (p) {
+      if (!this._w) return;
+      var w = this._w, h = this._h, a = p[0], b = p[1], c = p[2];
+      var m = 'matrix(' + [(b.x - a.x) / w, (b.y - a.y) / w, (c.x - a.x) / h, (c.y - a.y) / h, a.x, a.y].join(',') + ')';
+      this._img.style.webkitTransform = this._img.style.transform = m;
+    },
+    _reset: function () { var m = this._map; if (m) this._apply(this._corners.map(function (ll) { return m.latLngToLayerPoint(ll); })); },
+    _animateZoom: function (e) { var m = this._map; this._apply(this._corners.map(function (ll) { return m._latLngToNewLayerPoint(L.latLng(ll), e.zoom, e.center); })); }
+  });
+
   /** (Re)creates the Leaflet layers of any layer. */
   GC.renderLayer = function (l) {
     var v = ensureView(l);
@@ -333,7 +359,7 @@
       });
       v.group.addLayer(gj);
     } else if (l.kind === 'raster') {
-      v.group.addLayer(L.imageOverlay(l.dataURL, l.bounds, { pane: v.pn, interactive: false }));
+      v.group.addLayer(l.corners ? new GC.AffineImage(l.dataURL, l.corners, { pane: v.pn }) : L.imageOverlay(l.dataURL, l.bounds, { pane: v.pn, interactive: false }));
     } else if (l.kind === 'track') {
       (l.tracks || []).forEach(function (t) {
         if (!t.points.length) return;
@@ -379,7 +405,7 @@
     return '';
   };
   var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints' };
-  GC.kindLabel = function (l) { return l.kind === 'vector' && l.format ? l.format : KIND[l.kind]; };
+  GC.kindLabel = function (l) { return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
 
   /** Inserts imported layers below the annotation layers by default. */
   GC.insertLayer = function (l, onTop) {
@@ -657,6 +683,8 @@
         '<label class="slider" style="margin:8px 6px">Fill opacity <output id="lo-fv">' + Math.round((st.fillOpacity == null ? 0.2 : st.fillOpacity) * 100) + '%</output><input type="range" id="lo-f" min="0" max="80" value="' + Math.round((st.fillOpacity == null ? 0.2 : st.fillOpacity) * 100) + '"></label>' +
         '<label class="opt"><input type="checkbox" id="lo-file"' + (st.useFileStyle !== false ? ' checked' : '') + '> Use colours stored in the file (KML/GeoJSON styles)</label>' +
         '<label class="field">Label features by<select id="lo-label"><option value="">No labels</option>' + fields.map(function (f) { return '<option' + (f === l.labelField ? ' selected' : '') + '>' + GC.esc(f) + '</option>'; }).join('') + '</select></label>';
+    } else if (l.kind === 'raster') {
+      html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (plan lines show over the imagery)</label>' + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
@@ -668,6 +696,7 @@
       '<button class="btn" data-a="dup">Duplicate</button>' +
       '<button class="btn" data-a="export">Export…</button>' +
       (isVec && l.hasSources ? '<button class="btn" data-a="crs">Change coordinate system…</button>' : '') +
+      (l.kind === 'raster' && l.gcps && GC.georef ? '<button class="btn" data-a="georef">Adjust georeferencing…</button>' : '') +
       '</div><div class="actions"><button class="btn danger" data-a="del">Delete layer</button><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div>';
     GC.modal(html, function (el, close) {
       var q = function (s) { return el.querySelector(s); };
@@ -699,6 +728,8 @@
       };
       el.querySelector('[data-a=export]').onclick = function () { close(); GC.openExport([l.id]); };
       if (q('[data-a=crs]')) q('[data-a=crs]').onclick = function () { close(); GC.changeCRS(l); };
+      if (q('[data-a=georef]')) q('[data-a=georef]').onclick = function () { close(); GC.georef.edit(l); };
+      if (q('#lo-blend')) q('#lo-blend').onchange = function () { l.blend = q('#lo-blend').checked; GC.applyLayerState(); GC.markDirty(l.id); };
       el.querySelector('[data-a=del]').onclick = function () {
         close();
         var what = l.kind === 'drawing' ? l.items.length + ' drawn items' : GC.layerCount(l);

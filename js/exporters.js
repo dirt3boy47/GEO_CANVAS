@@ -114,11 +114,25 @@
   function kml(project, layerIds, outlines, opts) {
     var body = '';
     project.layers.forEach(function (l) {
-      if (layerIds.indexOf(l.id) < 0 || l.kind === 'raster') return;
+      if (layerIds.indexOf(l.id) < 0) return;
+      if (l.kind === 'raster') { if (opts && opts.kmz && l.dataURL) body += groundOverlay(l); return; }
       var pm = l.kind === 'vector' ? vectorKml(l, opts) : collect(project, [l.id], outlines).map(function (f) { return placemark(f, true, opts); }).join('');
       body += '<Folder><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility>\n' + pm + '</Folder>\n';
     });
-    return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>' + esc(project.name) + '</name><description>Exported from GeoCanvas</description>\n' + body + '</Document></kml>\n';
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document><name>' + esc(project.name) + '</name><description>Exported from GeoCanvas</description>\n' + body + '</Document></kml>\n';
+  }
+  function overlayFile(l) { return 'files/overlay-' + l.id + (/^data:image\/png/.test(l.dataURL) ? '.png' : '.jpg'); }
+  /** Plans and GeoTIFFs as Google Earth ground overlays (a placed plan keeps its rotation via gx:LatLonQuad). */
+  function groundOverlay(l) {
+    var g = '<GroundOverlay><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility><color>' + kmlColor('#ffffff', l.opacity == null ? 1 : l.opacity) + '</color><Icon><href>' + overlayFile(l) + '</href></Icon>';
+    if (l.corners) {
+      var c = l.corners.map(function (p) { return Geo.merc(p[1], p[0]); }), br = [c[1][0] + c[2][0] - c[0][0], c[1][1] + c[2][1] - c[0][1]];
+      var ll = [c[2], br, c[1], c[0]].map(function (m) { var q = Geo.unmerc(m[0], m[1]); return r8(q[0]) + ',' + r8(q[1]) + ',0'; }); // BL, BR, TR, TL
+      g += '<gx:LatLonQuad><coordinates>' + ll.join(' ') + '</coordinates></gx:LatLonQuad>';
+    } else {
+      g += '<LatLonBox><north>' + l.bounds[1][0] + '</north><south>' + l.bounds[0][0] + '</south><east>' + l.bounds[1][1] + '</east><west>' + l.bounds[0][1] + '</west></LatLonBox>';
+    }
+    return g + '</GroundOverlay>\n';
   }
 
   function gpx(project, layerIds) {
@@ -215,5 +229,5 @@
     return [ps, 0, 0, -ps, ulx + ps / 2, uly - ps / 2].map(function (v) { return v.toFixed(10); }).join('\n') + '\n';
   }
 
-  global.Exporters = { geojson: geojson, kml: kml, gpx: gpx, rasterExtent: rasterExtent, renderCanvas: renderCanvas, geotiff: geotiff, worldFile: worldFile, WKT3857: WKT3857, collect: collect };
+  global.Exporters = { geojson: geojson, kml: kml, overlayFile: overlayFile, gpx: gpx, rasterExtent: rasterExtent, renderCanvas: renderCanvas, geotiff: geotiff, worldFile: worldFile, WKT3857: WKT3857, collect: collect };
 })(typeof window !== 'undefined' ? window : global);

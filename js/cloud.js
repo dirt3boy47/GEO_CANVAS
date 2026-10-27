@@ -36,8 +36,16 @@
   var linfo = new WeakMap(), icache = new WeakMap(), gcache = new WeakMap(), dirtyGen = 0;
   // Imported GIS geometry is stored as its own blob, so showing/hiding placemarks or restyling re-sends only a few bytes.
   function geoHash(g) { var h = gcache.get(g); if (!h) { h = hash(JSON.stringify(g)); gcache.set(g, h); } return h; }
+  // Plan and GeoTIFF images likewise: changing opacity must not re-send the picture.
+  var BIG = { vector: 'geojson', raster: 'dataURL' }, strHash = {};
+  function bigHash(l) {
+    var v = l[BIG[l.kind]]; if (v == null) return null;
+    if (typeof v !== 'string') return geoHash(v);
+    var k = v.length + ':' + v.slice(-64); if (!strHash[k]) strHash[k] = hash(v); return strHash[k];
+  }
+  function bigText(l) { var v = l[BIG[l.kind]]; return typeof v === 'string' ? v : JSON.stringify(v); }
   function itemHash(spec, it) { var h = icache.get(it); if (!h) { h = hash(JSON.stringify(spec.clean(it))); icache.set(it, h); } return h; }
-  function propsOf(l) { var spec = COLL[l.kind], o = {}; for (var k in l) if (k !== '_leaflet' && (!spec || k !== spec.f) && !(l.kind === 'vector' && k === 'geojson')) o[k] = l[k]; return o; }
+  function propsOf(l) { var spec = COLL[l.kind], o = {}; for (var k in l) if (k !== '_leaflet' && (!spec || k !== spec.f) && k !== BIG[l.kind]) o[k] = l[k]; return o; }
   /** {h, p, spec, keys, ih, packs:[{h,a,b}]} for a layer; cached until the layer is marked dirty. */
   function info(l) {
     var c = linfo.get(l); if (c) return c;
@@ -50,7 +58,7 @@
         if (i === arr.length - 1 || i - start >= 63 || cyrb(c.keys[i], 7) % 12 === 0) { c.packs.push({ h: hash(c.ih.slice(start, i + 1).join(',')), a: start, b: i + 1 }); start = i + 1; }
       }
       c.h = hash(c.p + '|' + spec.f + '|' + c.packs.map(function (x) { return x.h; }).join(','));
-    } else if (l.kind === 'vector' && l.geojson) { c.gh = geoHash(l.geojson); c.h = hash(c.p + '|geo|' + c.gh); }
+    } else if (BIG[l.kind] && l[BIG[l.kind]] != null) { c.gh = bigHash(l); c.h = hash(c.p + '|geo|' + c.gh); }
     else c.h = c.p;
     linfo.set(l, c);
     return c;
@@ -144,7 +152,7 @@
     p.layers.forEach(function (l) {
       local[l.id] = l; var c = info(l);
       if (c.spec) c.packs.forEach(function (pk) { packIndex[pk.h] = { l: l, pk: pk }; });
-      if (c.gh) geoIndex[c.gh] = l.geojson;
+      if (c.gh) geoIndex[c.gh] = l[BIG[l.kind]];
     });
     var jobs = [];
     // source-file hashes
@@ -161,7 +169,10 @@
       if (rh === bh || rh === lh) return;
       jobs.push(getBlob(p.id, rh).then(function (txt) {
         var o = JSON.parse(txt), l = o.props;
-        if (o.geo) return (geoIndex[o.geo] ? Promise.resolve(geoIndex[o.geo]) : getBlob(p.id, o.geo).then(JSON.parse)).then(function (g) { l.geojson = g; pre.remote[lid] = l; });
+        if (o.geo) {
+          var field = BIG[l.kind] || 'geojson';
+          return (geoIndex[o.geo] != null ? Promise.resolve(geoIndex[o.geo]) : getBlob(p.id, o.geo).then(function (t) { return field === 'geojson' ? JSON.parse(t) : t; })).then(function (g) { l[field] = g; pre.remote[lid] = l; });
+        }
         if (!o.coll) { pre.remote[lid] = l; return; }
         var parts = o.packs.map(function (ph) {
           var hit = packIndex[ph];
@@ -338,7 +349,7 @@
       var l = res.out[id], c = info(l);
       producers[c.h] = function () { return Promise.resolve(layerBlob(l)); };
       if (c.spec) c.packs.forEach(function (pk) { producers[pk.h] = function () { return Promise.resolve(packBlob(l, pk)); }; });
-      if (c.gh) producers[c.gh] = function () { return Promise.resolve(JSON.stringify(l.geojson)); };
+      if (c.gh) producers[c.gh] = function () { return Promise.resolve(bigText(l)); };
     });
     Object.keys(res.files).forEach(function (id) {
       res.files[id].forEach(function (f) {

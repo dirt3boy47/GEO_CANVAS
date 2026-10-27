@@ -99,6 +99,7 @@
   <div class="tabs"><button data-tab="layers" class="on">Layers</button><button data-tab="project">Project</button></div>
   <div id="tab-layers" class="tab">
     <div class="tab-head"><span id="layer-count"></span><button class="link" id="btn-add-layer"><svg><use xlink:href="#i-plus"/></svg>Annotation layer</button></div>
+    <label class="opt ref-row"><input type="checkbox" id="ref-cad"> Lot boundaries (QLD cadastre)</label>
     <ul id="layer-list"></ul>
     <p class="hint">Drag ⠿ to reorder. ▸ opens folders, the eye shows or hides. Tap a placemark to fly to it and see its details; double-tap a layer or folder to zoom to it.</p>
   </div>
@@ -165,6 +166,18 @@
   <button class="pv-btn" id="pv-prev" aria-label="Previous photo">‹</button><button class="pv-btn" id="pv-next" aria-label="Next photo">›</button>
   <div id="pv-bar"><span id="pv-cap"></span><span class="spacer"></span><button class="btn" id="pv-share">Share / Save</button><button class="btn danger" id="pv-del">Remove</button><button class="btn primary" id="pv-close">Close</button></div>
 </div>
+<div id="georef" hidden>
+  <div id="gr-plan"><div id="gr-planmap"></div></div>
+  <div id="gr-bar" class="panel">
+    <div class="pop-title" id="gr-title">Place plan</div>
+    <p class="hint" id="gr-step"></p>
+    <div id="gr-pairs"></div>
+    <label class="opt"><input type="checkbox" id="gr-affine"> Allow stretch and skew (scanned or distorted plans, 3+ points)</label>
+    <label class="opt"><input type="checkbox" id="gr-blend" checked> Hide white paper</label>
+    <label class="slider">Plan opacity <output id="gr-opv">70%</output><input type="range" id="gr-op" min="10" max="100" value="70"></label>
+    <div class="row-btns"><button class="btn" id="gr-undo">Undo</button><button class="btn" id="gr-cancel">Cancel</button><button class="btn primary" id="gr-save">Save plan</button></div>
+  </div>
+</div>
 <div id="measure-panel" class="panel pop" hidden>
   <div class="pop-title">Measure <button class="ib" id="ms-close" title="Close measuring" aria-label="Close">&times;</button></div>
   <div class="seg" id="ms-mode"><button data-m="line" class="on">Line</button><button data-m="area">Area</button></div>
@@ -208,6 +221,8 @@
 <script src="js/photos.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/measure.js"></script>
+<script src="js/cadastre.js"></script>
+<script src="js/georef.js"></script>
 <script src="js/cloud.js"></script>
 </body>
 </html>

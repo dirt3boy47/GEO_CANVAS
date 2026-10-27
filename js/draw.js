@@ -434,6 +434,7 @@
   // In Navigate mode a tap on drawn ink or a GIS feature opens the inspector.
   map.on('click', function (e) {
     if (GC.mode === 'draw') return;
+    if (GC.georef && GC.georef.click(e)) return; // placing a plan: taps are control points
     if (GC.measure && GC.measure.click(e)) return; // measuring: taps add points
     GC.pickAt(e);
   });
