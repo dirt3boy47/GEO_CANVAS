@@ -724,15 +724,20 @@
   }
   function deleteProject(meta) {
     var id = meta.id, shared = GC.cloud && GC.cloud.linked(meta);
+    if (meta.remoteOnly) { // in the team cloud, not on this iPad
+      return GC.confirm('Delete “' + meta.name + '” for everyone?', 'It is removed from the team cloud. Devices that have a copy keep it, but it stops being shared. This cannot be undone.', 'Delete for everyone', true).then(function (ok) {
+        if (ok) GC.cloud.deleteEverywhere(id).then(function () { GC.toast('Deleted for everyone.'); }, function (e) { GC.toast('Could not delete it: ' + e.message, 'err'); });
+      });
+    }
     if (!shared) {
       return GC.confirm('Delete “' + meta.name + '”?', 'The project and all its layers are removed from this iPad. This cannot be undone — make a backup first if unsure.', 'Delete project', true).then(function (ok) {
         if (ok) return Store.deleteProject(id).then(function () { return afterDelete(id); });
       });
     }
-    GC.modal('<h2>Delete “' + esc(meta.name) + '”?</h2><p class="sub">This project is shared through cloud sync.</p>' +
-      '<p><b>Only from this iPad</b>: it stays in the cloud and on other devices, and you can download it again.</p>' +
-      '<p><b>Everywhere</b>: it is removed from the cloud too. Other devices keep their copy but stop sharing it. This cannot be undone.</p>' +
-      '<div class="actions"><button class="btn" data-a="no">Cancel</button><span class="spacer"></span><button class="btn" data-a="here">Only from this iPad</button><button class="btn danger" data-a="all">Everywhere</button></div>',
+    GC.modal('<h2>Delete “' + esc(meta.name) + '”?</h2><p class="sub">This is a team project.</p>' +
+      '<p><b>Only from this iPad</b>: it stays in the team cloud for everyone, and you can open it again from Projects.</p>' +
+      '<p><b>For everyone</b>: it is removed from the team cloud. Other devices keep their copy but stop sharing it. This cannot be undone.</p>' +
+      '<div class="actions"><button class="btn" data-a="no">Cancel</button><span class="spacer"></span><button class="btn" data-a="here">Only from this iPad</button><button class="btn danger" data-a="all">For everyone</button></div>',
       function (el, close) {
         el.querySelector('[data-a=no]').onclick = close;
         el.querySelector('[data-a=here]').onclick = function () { close(); Store.deleteProject(id).then(function () { return afterDelete(id); }); };
@@ -745,21 +750,34 @@
   }
   $('btn-projects').onclick = function () {
     var cloudOn = GC.cloud && GC.cloud.on();
-    if (cloudOn) GC.busy('Checking the cloud…');
+    if (cloudOn) GC.busy('Checking the team cloud…');
     Promise.all([GC.saveNow().then(Store.listProjects), cloudOn ? GC.cloud.remoteList() : Promise.resolve(null)]).then(function (r) {
       GC.busy(null);
-      var list = r[0], remote = r[1] || [], here = {};
-      list.forEach(function (p) { here[p.id] = true; });
-      var cloudOnly = remote.filter(function (x) { return !here[x.id]; });
-      var tag = function (p) { return !cloudOn ? '' : (p.cloudOff ? ' · not shared' : (p.cloud ? ' <span class="cloud-tag">☁ shared</span>' : ' · not uploaded yet')); };
-      var html = '<h2>Projects</h2><p class="sub">' + (cloudOn ? 'On this iPad. Shared projects sync with the team cloud.' : 'Stored on this iPad, in this browser. Back up important projects to Files, or turn on cloud sync in Settings.') + '</p><div class="list">' +
-        list.map(function (p) { return '<div class="item' + (p.id === GC.project.id ? ' current' : '') + '" data-id="' + p.id + '"><div class="grow" data-a="open"><b>' + esc(p.name) + '</b><small>' + (p.layerOrder || []).length + ' layers · edited ' + GC.fmtTime(p.modified) + tag(p) + '</small></div>' +
-          '<button class="ib" data-a="ren" title="Rename">' + GC.icon('text') + '</button><button class="ib" data-a="dup" title="Duplicate">' + GC.icon('copy') + '</button><button class="ib danger" data-a="del" title="Delete">' + GC.icon('trash') + '</button></div>'; }).join('') +
-        '</div>' +
-        (cloudOnly.length ? '<div class="pop-title small">In the cloud, not on this iPad yet</div><div class="list">' + cloudOnly.map(function (x) {
-          return '<div class="item" data-cloud="' + esc(x.id) + '"><div class="grow" data-a="get"><b>' + esc(x.name) + '</b><small>☁ changed ' + GC.fmtTime(x.modified) + (x.device ? ' by ' + esc(x.device) : '') + ' · ' + Math.max(1, Math.round(x.size / 1024)) + ' KB · tap to download</small></div></div>';
-        }).join('') + '</div>' : '') +
-        (cloudOn && r[1] === null ? '<p class="hint">The cloud could not be reached, so projects from other devices are not listed.</p>' : '') +
+      var local = r[0], remote = r[1] || [], byId = {}, rows = [];
+      remote.forEach(function (x) { byId[x.id] = x; });
+      // One list: every team project, whether or not it is on this iPad yet.
+      local.forEach(function (m) {
+        var x = byId[m.id], state = !cloudOn ? '' : m.cloudOff ? 'removed' : (m.cloud ? 'team' : 'new');
+        rows.push({ id: m.id, name: m.name, here: true, state: state, layers: (m.layerOrder || []).length, t: Math.max(m.modified || 0, x ? x.modified || 0 : 0), by: x && x.modified > (m.modified || 0) ? x.device : null, meta: m });
+        delete byId[m.id];
+      });
+      Object.keys(byId).forEach(function (id) { var x = byId[id]; rows.push({ id: id, name: x.name, here: false, state: 'cloud', t: x.modified, by: x.device, size: x.size }); });
+      rows.sort(function (a, b) { return (b.id === GC.project.id) - (a.id === GC.project.id) || b.t - a.t; });
+      var tag = function (r) {
+        if (r.state === 'cloud') return '<span class="cloud-tag">☁ tap to open</span>';
+        if (r.state === 'team') return '<span class="cloud-tag">☁</span>';
+        if (r.state === 'new') return ' · uploads when there is something in it';
+        if (r.state === 'removed') return ' · <b>removed from the team cloud</b>';
+        return '';
+      };
+      var html = '<h2>Projects</h2><p class="sub">' + (cloudOn ? 'Every team project, on any device. Tap one to open it; changes save by themselves.' : 'On this iPad only. Tap ☁ in the top bar to join your team and keep projects in the cloud.') + (cloudOn && r[1] === null ? ' <b>Offline: only projects on this iPad are shown.</b>' : '') + '</p><div class="list">' +
+        rows.map(function (x) {
+          return '<div class="item' + (x.id === GC.project.id ? ' current' : '') + '" data-id="' + esc(x.id) + '"><div class="grow" data-a="open"><b>' + esc(x.name) + '</b><small>' +
+            (x.here ? x.layers + ' layers · ' : '') + 'edited ' + GC.fmtTime(x.t) + (x.by ? ' by ' + esc(x.by) : '') + ' ' + tag(x) + '</small></div>' +
+            (x.state === 'removed' ? '<button class="btn" data-a="reup">Upload again</button>' : '') +
+            (x.here ? '<button class="ib" data-a="ren" title="Rename">' + GC.icon('text') + '</button><button class="ib" data-a="dup" title="Duplicate">' + GC.icon('copy') + '</button>' : '') +
+            '<button class="ib danger" data-a="del" title="Delete">' + GC.icon('trash') + '</button></div>';
+        }).join('') + '</div>' +
         '<div class="actions"><button class="btn" data-a="close">Close</button><button class="btn primary" data-a="new">New project</button></div>';
       GC.modal(html, function (el, close) {
         el.querySelector('[data-a=close]').onclick = close;
@@ -771,17 +789,18 @@
             Store.saveProject(p, null).then(function () { GC.openProject(p); });
           });
         };
-        Array.prototype.forEach.call(el.querySelectorAll('[data-cloud]'), function (it) {
-          it.onclick = function () {
-            close(); GC.busy('Downloading from the cloud…');
-            GC.saveNow().then(function () { return GC.cloud.download(it.getAttribute('data-cloud')); }).then(function (p) { GC.busy(null); GC.openProject(p); GC.toast('Downloaded “' + p.name + '”.'); }, function (e) { GC.busy(null); GC.toast('Download failed: ' + e.message, 'err'); });
-          };
-        });
         el.querySelector('.list').onclick = function (e) {
           var it = e.target.closest('[data-id]'), a = e.target.closest('[data-a]'); if (!it || !a) return;
-          var id = it.getAttribute('data-id'), act = a.getAttribute('data-a'), meta = list.filter(function (x) { return x.id === id; })[0];
-          if (act === 'open') { close(); openOther(id); }
-          else if (act === 'ren') { close(); GC.prompt('Rename project', meta.name, 'Name', 'Rename').then(function (n) { if (!n) return; if (id === GC.project.id) { GC.project.name = n; $('project-name').textContent = n; $('proj-name').value = n; GC.markDirty(); } else Store.loadProject(id).then(function (p) { p.name = n; if (GC.cloud) GC.cloud.touch(id); return Store.saveProject(p, {}); }); }); }
+          var id = it.getAttribute('data-id'), act = a.getAttribute('data-a'), row = rows.filter(function (x) { return x.id === id; })[0], meta = row.meta;
+          if (act === 'open') {
+            close();
+            if (row.here) { openOther(id); return; }
+            GC.busy('Opening “' + row.name + '”…');
+            GC.saveNow().then(function () { return GC.cloud.download(id); }).then(function (p) { GC.busy(null); GC.openProject(p); }, function (er) { GC.busy(null); GC.toast('Could not open it: ' + er.message, 'err'); });
+          } else if (act === 'reup') {
+            close();
+            Store.loadProject(id).then(function (p) { delete p.cloudOff; delete p.cloud; return Store.saveProject(p, {}).then(function () { if (GC.project.id === id) { delete GC.project.cloudOff; delete GC.project.cloud; } GC.cloud.touch(id); GC.cloud.run(true); GC.toast('“' + p.name + '” will be uploaded to the team cloud again.'); }); });
+          } else if (act === 'ren') { close(); GC.prompt('Rename project', meta.name, 'Name', 'Rename').then(function (n) { if (!n) return; if (id === GC.project.id) { GC.project.name = n; $('project-name').textContent = n; $('proj-name').value = n; GC.markDirty(); } else Store.loadProject(id).then(function (p) { p.name = n; if (GC.cloud) GC.cloud.touch(id); return Store.saveProject(p, {}); }); }); }
           else if (act === 'dup') {
             close(); GC.busy('Duplicating…');
             GC.saveNow().then(function () { return Store.loadProject(id); }).then(function (p) {
@@ -789,7 +808,7 @@
               return Promise.all(p.layers.filter(function (l) { return l.hasSources; }).map(function (l) { return l.id; }).concat(['_photos']).map(function (lid) { return Store.getFiles(oldId, lid).then(function (fs) { return Promise.all(fs.map(function (f) { return Store.putFile(p.id, lid, f.name, f.data); })); }); }))
                 .then(function () { return Store.saveProject(p, null); }).then(function () { return p; });
             }).then(function (p) { GC.busy(null); GC.toast('Created “' + p.name + '”.'); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); });
-          } else if (act === 'del') { close(); deleteProject(meta); }
+          } else if (act === 'del') { close(); deleteProject(row.here ? meta : { id: id, name: row.name, cloud: {}, remoteOnly: true }); }
         };
       });
     });
@@ -802,7 +821,7 @@
       '<label class="opt"><input type="checkbox" id="st-finger"' + (s.fingerDraw ? ' checked' : '') + '> Draw with finger in Draw mode (two fingers pan and zoom). Off: only Apple Pencil draws and fingers move the map.</label>' +
       '<label class="opt"><input type="checkbox" id="st-cross"' + (s.crosshair ? ' checked' : '') + '> Show centre crosshair</label>' +
       '<label class="field" style="margin:8px 0">Coordinate format<select id="st-fmt"><option value="dd">Decimal degrees</option><option value="dms">Degrees minutes seconds</option><option value="mga">MGA2020 grid (easting/northing)</option></select></label>' +
-      '<div class="pop-title small">Cloud sync</div><div id="st-cloud"></div>' +
+      '<div class="pop-title small">Team & cloud</div><div id="st-cloud"></div>' +
       '<div class="pop-title small">Offline imagery</div><p class="hint" style="margin:0 0 6px">Saves Queensland aerial imagery for the area on screen (up to 4 zoom levels closer) so it shows without internet.</p>' +
       '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Save this area for offline use</button><button class="btn" id="st-clear">Delete saved imagery</button></div><p class="hint" id="st-off-msg"></p>' +
       '<div class="pop-title small">Storage</div><p class="hint" id="st-store" style="margin:0">Checking…</p>' +

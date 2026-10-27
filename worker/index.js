@@ -45,6 +45,7 @@ function sameText(a, b) {
   return x === 0;
 }
 
+const MAX_FAILS = 20, WINDOW = 10 * 60 * 1000;
 async function authorised(request, env) {
   const key = request.headers.get('X-GC-Key') || '';
   const rows = (await env.DB.prepare("SELECT k, v FROM config WHERE k IN ('keyhash', 'salt')").all()).results;
@@ -52,7 +53,16 @@ async function authorised(request, env) {
   rows.forEach((r) => { cfg[r.k] = r.v; });
   if (!cfg.keyhash) return 'unset';
   if (!key) return false;
-  return sameText(await sha256((cfg.salt || '') + key), cfg.keyhash);
+  // Too many wrong join codes from this address: refuse without even checking (stops guessing).
+  const ip = request.headers.get('CF-Connecting-IP') || 'local', win = Math.floor(Date.now() / WINDOW);
+  const f = await env.DB.prepare('SELECT n FROM fails WHERE ip = ? AND win = ?').bind(ip, win).first();
+  if (f && f.n >= MAX_FAILS) return 'locked';
+  if (sameText(await sha256((cfg.salt || '') + key), cfg.keyhash)) return true;
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO fails (ip, win, n) VALUES (?, ?, 1) ON CONFLICT(ip, win) DO UPDATE SET n = n + 1').bind(ip, win),
+    env.DB.prepare('DELETE FROM fails WHERE win < ?').bind(win - 6)
+  ]);
+  return false;
 }
 
 async function current(env, id) {
@@ -68,7 +78,8 @@ async function api(request, env, url) {
   const auth = await authorised(request, env);
   // With no passcode set (new database, or reset by clearing the config table), the first device to set one claims it.
   if (auth === 'unset' && !(parts[1] === 'passcode' && m === 'POST')) return json({ error: 'Cloud sync has no team passcode yet.', unset: true }, 503);
-  if (!auth) return json({ error: 'Wrong team passcode.' }, 401);
+  if (auth === 'locked') return json({ error: 'Too many wrong join codes from this connection. Wait 10 minutes and try again.' }, 429);
+  if (!auth) return json({ error: 'That join code is not right. Check it with someone in your team.' }, 401);
 
   if (parts[1] === 'ping' && m === 'GET') return json({ ok: true });
 

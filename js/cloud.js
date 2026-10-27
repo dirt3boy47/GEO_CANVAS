@@ -85,7 +85,7 @@
     }
     origMarkDirty(lid, soon);
     dirtyGen++;
-    if (GC.project && on()) { pending(GC.project.id, true); schedule(4000); }
+    if (GC.project && on()) { pending(GC.project.id, true); if (lid && !running) setStatus('syncing'); schedule(2000); }
   };
   GC.markAllDirty = function () { linfo = new WeakMap(); icache = new WeakMap(); origMarkAll(); };
 
@@ -93,16 +93,28 @@
   function cfg() { return GC.settings.cloud || {}; }
   function on() { return !!cfg().key; }
   var status = { state: 'off', at: 0, msg: '' };
+  function hhmm(t) { return new Date(t).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
+  function waiting() { return Object.keys(pendingSet()).length; }
+  /** What the cloud button, the title line and the Team screen say right now. */
+  function describe() {
+    if (!on()) return { cls: 'off', short: 'Not in a team', long: 'This iPad is not in a team yet, so projects are only on this iPad. Join your team to save them to the cloud.' };
+    var n = waiting();
+    switch (status.state) {
+      case 'syncing': return { cls: 'busy', short: 'Saving…', long: 'Saving to the cloud…' };
+      case 'offline': return { cls: 'warn', short: 'Offline', long: n ? 'Offline. Changes to ' + n + ' project' + (n > 1 ? 's are' : ' are') + ' kept on this iPad and upload by themselves when the internet is back.' : 'Offline. Everything was saved before the connection dropped.' };
+      case 'error': return { cls: 'err', short: 'Not saved', long: 'Not saved to the cloud: ' + status.msg };
+      case 'skip': return { cls: 'warn', short: 'Not in cloud', long: 'This project was removed from the team cloud on another device. Projects › Upload again to share it again.' };
+      case 'ok': return { cls: 'ok', short: 'Saved ' + hhmm(status.at), long: 'All changes saved to the cloud at ' + hhmm(status.at) + '.' };
+      default: return { cls: 'idle', short: 'Ready', long: 'Connected to the team cloud. Changes save by themselves.' };
+    }
+  }
   function setStatus(state, msg) {
     status.state = state; status.msg = msg || ''; if (state === 'ok') status.at = Date.now();
-    var el = $('cloud-status'); if (!el) return;
-    var t = { off: '', idle: '☁', syncing: '☁ Syncing…', ok: '☁ Synced', offline: '☁ Offline — syncs later', error: '☁ Sync problem', skip: '☁ Not shared' }[state] || '';
-    el.textContent = t ? ' · ' + t : ''; el.className = state === 'error' ? 'err' : '';
-    el.title = msg || '';
-    var pt = $('proj-cloud-status');
-    if (pt) pt.textContent = !on() ? '' : (state === 'ok' ? 'Synced with the cloud at ' + new Date(status.at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) + '.' :
-      state === 'syncing' ? 'Syncing…' : state === 'offline' ? 'Offline. Changes are kept on this iPad and sync when the internet is back.' :
-      state === 'error' ? 'Sync problem: ' + msg : state === 'skip' ? 'This project is not shared to the cloud.' : '');
+    var d = describe();
+    var el = $('cloud-status'); if (el) { el.textContent = on() ? ' · ☁ ' + (d.cls === 'ok' ? 'In cloud' : d.short) : ''; el.className = d.cls === 'err' ? 'err' : ''; el.title = d.long; }
+    var b = $('btn-cloud'); if (b) { b.className = 'ib cloud-btn ' + d.cls; b.title = d.long; b.setAttribute('aria-label', 'Team and cloud: ' + d.short); }
+    var pt = $('proj-cloud-status'); if (pt) pt.textContent = d.long;
+    var tm = $('tm-status'); if (tm) { tm.textContent = d.long; tm.className = 'tm-status ' + d.cls; }
   }
   function pendingSet() { try { return JSON.parse(localStorage.getItem('gc.cloudPending') || '{}'); } catch (e) { return {}; } }
   function pending(id, v) {
@@ -445,7 +457,7 @@
     if (running) { again = true; return Promise.resolve(); }
     var p = GC.project;
     if (p.cloudOff) { setStatus('skip'); return Promise.resolve(); }
-    if (!force && Date.now() - lastCheck < 15000 && !pendingSet()[p.id]) return Promise.resolve();
+    if (!force && Date.now() - lastCheck < 12000 && !pendingSet()[p.id]) return Promise.resolve();
     if (navigator.onLine === false) { setStatus('offline'); return Promise.resolve(); }
     running = true; lastCheck = Date.now();
     var gen = dirtyGen;
@@ -454,12 +466,12 @@
       clearTimeout(slow); running = false; warned401 = false;
       // Edits made while this round ran are not in it: go again soon.
       if (r !== 'busy') { if (dirtyGen === gen) pending(p.id, false); else again = true; }
-      if (r === 'busy') { schedule(2500); setStatus(status.state === 'syncing' ? 'idle' : status.state); }
+      if (r === 'busy') { schedule(2500); }
       else setStatus(r === 'skip' && (p.cloudOff || !p.cloud) ? (p.cloudOff ? 'skip' : 'idle') : (r === 'unlinked' ? 'skip' : 'ok'));
       if (again) { again = false; clearTimeout(timer); timer = setTimeout(function () { run(true); }, 1000); }
     }, function (e) {
       clearTimeout(slow); running = false;
-      if (e.offline) setStatus('offline'); else { setStatus('error', e.message); if (e.status === 401 && !warned401) GC.toast('Cloud sync: the team passcode was changed. Enter the new one in Settings.', 'err', 9000); }
+      if (e.offline) setStatus('offline'); else { setStatus('error', e.status === 401 ? 'the team join code was changed. Tap ☁ and join again with the new code.' : e.message); if (e.status === 401 && !warned401) GC.toast('The team join code was changed. Tap ☁ (top bar) and join again with the new code.', 'err', 9000); }
       if (e.status === 401) warned401 = true;
       if (again) { again = false; schedule(5000); }
     });
@@ -484,7 +496,7 @@
     }).catch(function () { /* offline or not set up: next time */ });
   }
 
-  setInterval(function () { if (document.visibilityState !== 'hidden') run(false); }, 20000);
+  setInterval(function () { if (document.visibilityState !== 'hidden') run(false); }, 15000);
   setInterval(function () { if (document.visibilityState !== 'hidden') syncOthers(); }, 5 * 60000);
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') run(true);
@@ -502,60 +514,117 @@
   // ---------- UI ----------
   function refreshProjectTab() {
     var box = $('proj-cloud'); if (!box) return;
-    box.hidden = !on();
-    if (!on() || !GC.project) return;
-    $('proj-cloud-share').checked = !GC.project.cloudOff;
-    setStatus(GC.project.cloudOff ? 'skip' : status.state);
+    box.hidden = false;
+    if (GC.project && GC.project.cloudOff) status.state = 'skip';
+    setStatus(status.state);
   }
-  if ($('proj-cloud-share')) $('proj-cloud-share').onchange = function () {
-    var p = GC.project;
-    if ($('proj-cloud-share').checked) { delete p.cloudOff; delete p.cloud; } else p.cloudOff = true;
-    Store.saveProject(p, {}).then(function () { refreshProjectTab(); if (!p.cloudOff) run(true); });
-  };
-  if ($('proj-cloud-sync')) $('proj-cloud-sync').onclick = function () { run(true); syncOthers(); };
+  if ($('proj-cloud-sync')) $('proj-cloud-sync').onclick = function () { if (!on()) { openTeam(); return; } run(true); syncOthers(); };
 
-  function connect(key, device) {
+  // ---------- team: join code ----------
+  var ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789';
+  /** Join codes are typed however people like: case, spaces and dashes don't matter. */
+  function normCode(t) { var c = String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''), g = c.match(/.{1,4}/g); return g ? g.join('-') : ''; }
+  function newCode() { var r = new Uint32Array(12), s = ''; crypto.getRandomValues(r); for (var i = 0; i < 12; i++) s += ALPHA[r[i] % ALPHA.length]; return normCode(s); }
+  function showCode(k) { return String(k || '').toUpperCase(); }
+  function teamExists() { // 503 "unset" = no team yet; anything else (401) = a team exists
+    return api('GET', 'ping', null, { key: '', timeout: 10000 }).then(function () { return true; }, function (e) { return e.status === 503 ? false : e.offline ? null : true; });
+  }
+  function connect(key, device, create) {
+    key = normCode(key);
     var ping = function () { return api('GET', 'ping', null, { key: key, timeout: 15000 }); };
-    return ping().catch(function (e) {
-      if (e.status !== 503) throw e; // no passcode set yet: this one becomes the team passcode
-      if (key.length < 8) throw new Error('No team passcode is set yet. Choose one of at least 8 characters to create it.');
-      return api('POST', 'passcode', { key: key }, { key: key }).then(ping);
+    return (create ? api('POST', 'passcode', { key: key }, { key: key }).then(ping) : ping()).catch(function (e) {
+      if (e.offline) throw new Error('No internet connection. Joining needs to be online once.');
+      if (e.status === 503) throw new Error('This GeoCanvas has no team yet. Tap “Start a team” instead.');
+      throw e;
     }).then(function () {
       GC.settings.cloud = { key: key, device: device }; GC.saveSettings();
       try { localStorage.removeItem('gc.cloudPending'); } catch (e) { /* ignore */ }
-      refreshProjectTab(); run(true).then(syncOthers);
+      refreshProjectTab();
+      return openLatestIfEmpty().then(function () { run(true).then(syncOthers); });
+    });
+  }
+  /** A new iPad that joins with only its empty starter project opens the team's latest project instead. */
+  function isEmpty(p) { return !p.cloud && !p.notes && p.layers.every(function (l) { return l.kind === 'drawing' && !l.items.length; }); }
+  function openLatestIfEmpty() {
+    var p = GC.project;
+    return Store.listProjects().then(function (list) {
+      if (!p || list.length !== 1 || list[0].id !== p.id || !isEmpty(p)) return;
+      return remoteList().then(function (rem) {
+        if (!rem || !rem.length) return;
+        var latest = rem.slice().sort(function (a, b) { return b.modified - a.modified; })[0];
+        GC.busy('Opening “' + latest.name + '” from the team…');
+        return download(latest.id).then(function (q) { GC.openProject(q); return Store.deleteProject(p.id); }).then(function () { GC.busy(null); }, function () { GC.busy(null); });
+      });
     });
   }
   /** Settings section (panels.js puts an empty #st-cloud in the Settings sheet). */
   function renderSettings(box) {
     if (!box) return;
+    box.innerHTML = '<p class="hint" style="margin:0 0 6px">' + esc(describe().long) + '</p><div class="row-btns" style="margin:0"><button class="btn' + (on() ? '' : ' primary') + '" id="cl-team">' + (on() ? 'Team & cloud…' : 'Join your team…') + '</button></div>';
+    box.querySelector('#cl-team').onclick = function () { GC.closeModal(); openTeam(); };
+  }
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) { /* ignore */ } document.body.removeChild(ta); return Promise.resolve();
+  }
+  /** The Team & cloud screen (top-bar cloud button). */
+  function openTeam() {
     var c = cfg();
     if (!on()) {
-      box.innerHTML = '<p class="hint" style="margin:0 0 6px">Share projects (drawings, notes, imported KMZ/shapefiles, GPS tracks) with every iPad or computer that has the team passcode. This iPad keeps working offline and catches up when it is back online.</p>' +
-        '<label class="field" style="margin:6px 0">Your name or this device\'s name<input type="text" id="cl-dev" placeholder="e.g. Sam\'s iPad" value="' + esc(c.device || '') + '"></label>' +
-        '<label class="field" style="margin:6px 0">Team passcode<input type="text" id="cl-key" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
-        '<div class="row-btns" style="margin:0"><button class="btn primary" id="cl-go">Turn on cloud sync</button></div><p class="hint" id="cl-msg"></p>';
-      box.querySelector('#cl-go').onclick = function () {
-        var key = box.querySelector('#cl-key').value.trim(), dev = box.querySelector('#cl-dev').value.trim() || 'iPad', msg = box.querySelector('#cl-msg');
-        if (!key) { msg.textContent = 'Enter the team passcode.'; return; }
-        msg.textContent = 'Connecting…';
-        connect(key, dev).then(function () { renderSettings(box); GC.toast('Cloud sync is on. Your projects are being shared.'); }, function (e) { msg.textContent = e.message; });
-      };
+      GC.modal('<h2>Join your team</h2><p class="sub">Projects are then saved to the team cloud automatically and can be opened on any iPad or computer in the team. This iPad keeps a copy and works offline.</p>' +
+        '<label class="field">Your name<input type="text" id="tm-name" placeholder="e.g. Sam" value="' + esc(c.device || '') + '" autocomplete="name"></label>' +
+        '<label class="field">Team join code<input type="text" id="tm-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase"></label>' +
+        '<p class="hint">Ask anyone already in the team: it is under ☁ › Team join code.</p><p class="fail" id="tm-msg" hidden></p>' +
+        '<div class="actions"><button class="btn" data-a="no">Not now</button><button class="btn primary" data-a="join">Join team</button></div>' +
+        '<div id="tm-start" hidden><div class="pop-title small">No team yet?</div><p class="hint" style="margin:0 0 8px">Start one: GeoCanvas makes a join code for you to share with the others.</p><button class="btn" data-a="start">Start a team</button></div>',
+        function (el, close) {
+          var msg = function (t) { var m = el.querySelector('#tm-msg'); m.hidden = !t; m.textContent = t || ''; };
+          var name = function () { return el.querySelector('#tm-name').value.trim(); };
+          el.querySelector('[data-a=no]').onclick = close;
+          el.querySelector('[data-a=join]').onclick = function () {
+            var code = normCode(el.querySelector('#tm-code').value);
+            if (!name()) { msg('Type your name, so others can see who changed what.'); return; }
+            if (code.replace(/-/g, '').length < 8) { msg('Type the team join code (12 letters and numbers).'); return; }
+            var who = name(); msg(''); el.querySelector('[data-a=join]').textContent = 'Joining…';
+            connect(code, who).then(function () { close(); GC.toast('Welcome to the team, ' + who + '. Your projects now save to the cloud by themselves.'); }, function (e) { el.querySelector('[data-a=join]').textContent = 'Join team'; msg(e.message); });
+          };
+          teamExists().then(function (x) { if (x === false) el.querySelector('#tm-start').hidden = false; });
+          el.querySelector('[data-a=start]').onclick = function () {
+            if (!name()) { msg('Type your name first.'); return; }
+            var code = newCode();
+            connect(code, name(), true).then(function () { close(); openTeam(); GC.toast('Your team is ready. Share the join code with the others.'); }, function (e) { msg(e.message); });
+          };
+        });
       return;
     }
-    box.innerHTML = '<p class="hint" style="margin:0 0 6px">On, as <b>' + esc(c.device || 'this device') + '</b>. ' + esc($('proj-cloud-status') ? $('proj-cloud-status').textContent : '') + '</p>' +
-      '<div class="row-btns" style="margin:0"><button class="btn" id="cl-now">Sync now</button><button class="btn" id="cl-pass">Change team passcode…</button><button class="btn" id="cl-off">Turn off on this device</button></div><p class="hint" id="cl-msg"></p>';
-    box.querySelector('#cl-now').onclick = function () { var m = box.querySelector('#cl-msg'); m.textContent = 'Syncing…'; run(true).then(syncOthers).then(function () { m.textContent = status.state === 'error' ? status.msg : (status.state === 'offline' ? 'Offline.' : 'Done.'); }); };
-    box.querySelector('#cl-off').onclick = function () {
-      delete GC.settings.cloud; GC.saveSettings(); setStatus('off'); refreshProjectTab(); renderSettings(box);
-      GC.toast('Cloud sync is off on this iPad. Projects stay on the iPad and in the cloud.');
-    };
-    box.querySelector('#cl-pass').onclick = function () {
-      GC.prompt('New team passcode (at least 8 characters). Every device will need to enter it again.', '', 'New passcode', 'Change').then(function (k) {
-        if (!k) return;
-        api('POST', 'passcode', { key: k }).then(function () { GC.settings.cloud.key = k; GC.saveSettings(); GC.toast('Team passcode changed. Enter it on the other devices (Settings › Cloud sync).'); }, function (e) { GC.toast(e.message, 'err'); });
+    var code = showCode(c.key);
+    GC.modal('<h2>Team & cloud</h2><p class="tm-status" id="tm-status"></p>' +
+      '<div class="pop-title small">Team join code</div><div class="tm-code"><code>' + esc(code) + '</code><button class="btn" data-a="copy">Copy</button>' + (navigator.share ? '<button class="btn" data-a="share">Share…</button>' : '') + '</div>' +
+      '<p class="hint" style="margin:4px 0 0">Anyone who types this code in GeoCanvas (☁ in the top bar) joins the team and sees every project.</p>' +
+      '<div class="pop-title small">You</div><p style="margin:0">' + esc(c.device || 'This iPad') + ' <button class="link" data-a="rename">Change name</button></p>' +
+      '<div class="actions"><button class="btn" data-a="leave">Leave team on this iPad</button><button class="btn" data-a="recode">New join code…</button><span class="spacer"></span><button class="btn" data-a="now">Save now</button><button class="btn primary" data-a="ok">Done</button></div>',
+      function (el, close) {
+        setStatus(status.state);
+        el.querySelector('[data-a=ok]').onclick = close;
+        el.querySelector('[data-a=copy]').onclick = function () { copyText(code).then(function () { GC.toast('Join code copied.'); }); };
+        if (el.querySelector('[data-a=share]')) el.querySelector('[data-a=share]').onclick = function () { navigator.share({ text: 'Join our GeoCanvas team: open ' + location.origin + ' , tap ☁ and enter the code ' + code }).catch(function () {}); };
+        el.querySelector('[data-a=now]').onclick = function () { setStatus('syncing'); run(true).then(syncOthers); };
+        el.querySelector('[data-a=rename]').onclick = function () { close(); GC.prompt('Your name', c.device || '', 'e.g. Sam', 'Save').then(function (n) { if (n) { GC.settings.cloud.device = n; GC.saveSettings(); } openTeam(); }); };
+        el.querySelector('[data-a=leave]').onclick = function () {
+          close();
+          GC.confirm('Leave the team on this iPad?', 'Projects stay on this iPad and in the team cloud, but this iPad stops saving to the cloud until it joins again.', 'Leave', true).then(function (ok) {
+            if (!ok) return; delete GC.settings.cloud; GC.saveSettings(); setStatus('off'); refreshProjectTab(); GC.toast('This iPad has left the team.');
+          });
+        };
+        el.querySelector('[data-a=recode]').onclick = function () {
+          close();
+          GC.confirm('Make a new join code?', 'The old code stops working: everyone else in the team has to join again with the new code (their projects stay safe). Use this if the code got to someone it shouldn’t.', 'New code', true).then(function (ok) {
+            if (!ok) return;
+            var k = newCode();
+            api('POST', 'passcode', { key: k }).then(function () { GC.settings.cloud.key = k; GC.saveSettings(); openTeam(); GC.toast('New join code made. Share it with the team.'); }, function (e) { GC.toast(e.message, 'err'); });
+          });
+        };
       });
-    };
   }
 
   /** Projects in the cloud (for the Projects sheet); [] when off or unreachable. */
@@ -576,10 +645,12 @@
   function deleteEverywhere(id) { return api('DELETE', 'projects/' + id); }
   function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff; }
 
-  GC.cloud = { on: on, run: run, renderSettings: renderSettings, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, touch: function (id) { pending(id, true); },
+  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, touch: function (id) { pending(id, true); },
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
   // start
+  if ($('btn-cloud')) $('btn-cloud').onclick = openTeam;
   refreshProjectTab();
-  if (on()) { setStatus('idle'); setTimeout(function () { run(true).then(syncOthers); }, 1500); }
+  setStatus(on() ? 'idle' : 'off');
+  if (on()) setTimeout(function () { run(true).then(syncOthers); }, 1500);
 })(window);

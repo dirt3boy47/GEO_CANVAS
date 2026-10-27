@@ -36,6 +36,7 @@
     <symbol id="i-grip" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></g></symbol>
     <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 13l1.8 1.8M9.5 10.5l2.6 2.6M12 8l1.8 1.8M14.5 5.5l2.6 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.2" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
     <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
@@ -90,6 +91,7 @@
   <span class="sep"></span>
   <button class="ib" id="btn-undo" title="Undo" disabled><svg><use xlink:href="#i-undo"/></svg></button>
   <button class="ib" id="btn-redo" title="Redo" disabled><svg><use xlink:href="#i-redo"/></svg></button>
+  <button class="ib cloud-btn off" id="btn-cloud" title="Team and cloud" aria-label="Team and cloud"><svg><use xlink:href="#i-cloud"/></svg><i class="cdot"></i></button>
   <button class="ib" id="btn-settings" title="Settings"><svg><use xlink:href="#i-gear"/></svg></button>
   <input type="file" id="file-input" multiple hidden>
   <input type="file" id="restore-input" accept=".json,.geocanvas,application/json" hidden>
@@ -106,10 +108,10 @@
   <div id="tab-project" class="tab" hidden>
     <label class="field">Project name<input id="proj-name" type="text"></label>
     <label class="field">Notes<textarea id="proj-notes" rows="7" placeholder="Field notes, site details, contacts…"></textarea></label>
-    <div id="proj-cloud" hidden>
-      <label class="opt"><input type="checkbox" id="proj-cloud-share"> Share this project through cloud sync</label>
-      <p class="hint" id="proj-cloud-status"></p>
-      <div class="row-btns"><button class="btn" id="proj-cloud-sync">Sync now</button></div>
+    <div id="proj-cloud">
+      <div class="pop-title small">Team cloud</div>
+      <p class="hint" id="proj-cloud-status" style="margin:0 6px 6px"></p>
+      <div class="row-btns"><button class="btn" id="proj-cloud-sync">Save now</button></div>
     </div>
     <div class="row-btns"><button class="btn" id="btn-backup">Back up project</button><button class="btn" id="btn-restore">Restore backup</button></div>
     <p class="hint" id="storage-note"></p>

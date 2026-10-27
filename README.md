@@ -23,27 +23,27 @@ be **https://**, because Safari only allows GPS on secure websites.
 
 To update later: upload a new ZIP to the same Cloudflare project ("Create new deployment").
 
-## Cloud sync (share projects between devices)
+## Team & cloud (every project on every device)
 
-Projects — drawings, notes, imported KMZ/KML/shapefiles/GeoTIFFs (including the original files), GPS
-tracks and waypoints — can be shared with every iPad or computer that has the **team passcode**.
+- **Join:** tap ☁ in the top bar, type your name and the **team join code** (it looks like `ABCD-EFGH-JK23`;
+  capitals, spaces and dashes don't matter). Anyone in the team finds the code under ☁ › Team join code
+  (Copy / Share). No team yet? ☁ › **Start a team** makes the code. Never put the code in this public repository.
+- **Every project is a team project.** Projects › one list of all team projects, on this iPad or not — tap one to
+  open it. A new iPad that joins with nothing on it opens the team's latest project.
+- **Saving is automatic:** changes go up about 2 s after you stop; other devices check every 15 s. The ☁ button
+  shows the state (green dot = saved, blue = saving, orange = offline with changes waiting, red = problem) and the
+  title line says “☁ In cloud”. Each iPad keeps a copy and works offline; it catches up when back online.
+- **Two people on one project:** strokes, tracks, waypoints and photos from both are kept. If the same item or the
+  same imported layer's settings change on two devices, the last device to save wins.
+- **Removing access:** ☁ › New join code… The old code stops working; everyone rejoins with the new one (their
+  projects are safe). 20 wrong codes from one connection lock it out for 10 minutes.
+- **Deleting:** “Only from this iPad” (stays in the team cloud) or “For everyone”.
 
-- Turn it on per device: **Settings › Cloud sync**, enter a name for the device and the team passcode.
-- Every project is shared automatically (untick *Share this project through cloud sync* in the Project
-  tab to keep one private). Projects from other devices appear under **Projects › In the cloud** — tap to download.
-- Each device keeps working offline; changes sync when it is back online (status next to "Saved" at the top).
-- Two people can work on the same project at once: strokes, tracks and waypoints from both are kept.
-  If the same item or the same imported layer's settings are changed on two devices, the last device to sync wins.
-- Deleting a shared project asks whether to remove it *only from this iPad* or *everywhere*.
-
-How it works: the site is a Cloudflare Worker (`worker/index.js`, config in `wrangler.jsonc`) that serves
-the app and a small API at `/api/`. Data is stored in the Cloudflare D1 database `geocanvas`
-(schema in `migrations/`). Pushing to `main` redeploys automatically.
-
-The team passcode is stored only as a salted hash in D1 (`config` table). Change it in the app (Settings ›
-Cloud sync › Change team passcode); every device then has to enter the new one. If it is forgotten: in the
-Cloudflare dashboard open **Storage & Databases › D1 › geocanvas › Console** and run `DELETE FROM config;`.
-The next device to turn on cloud sync sets the new passcode (at least 8 characters). Projects are not affected.
+How it works: the site is a Cloudflare Worker (`worker/index.js`, config in `wrangler.jsonc`) that serves the app
+and a small API at `/api/`. Data is stored in the Cloudflare D1 database `geocanvas` (schema in `migrations/`).
+Pushing to the production branch redeploys automatically. The join code is stored only as a salted hash. If it is
+forgotten: Cloudflare dashboard › Storage & Databases › D1 › geocanvas › Console › `DELETE FROM config;` — then the
+next person to tap ☁ can **Start a team** with a new code. Projects are not affected.
 
 ## Using it
 

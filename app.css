@@ -307,3 +307,19 @@ body.georef #sidebar, body.georef #toolbar, body.georef #inspector, body.georef 
   #gr-bar { max-height: 42%; }
 }
 
+
+/* team & cloud */
+.cloud-btn { position: relative; }
+.cloud-btn .cdot { position: absolute; right: 7px; bottom: 8px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--panel-solid); background: var(--muted); }
+.cloud-btn.ok .cdot, .cloud-btn.idle .cdot { background: #2e9e44; }
+.cloud-btn.busy .cdot { background: #1a73e8; -webkit-animation: grpulse 1s infinite; animation: grpulse 1s infinite; }
+.cloud-btn.warn .cdot { background: #f39c12; }
+.cloud-btn.err .cdot { background: var(--danger); }
+.cloud-btn.off { color: var(--muted); }
+.cloud-btn.off .cdot { background: transparent; border-color: var(--muted); }
+.tm-status { margin: 0 0 6px; padding: 10px 12px; border-radius: 10px; background: var(--chip); font-weight: 600; }
+.tm-status.ok, .tm-status.idle { background: rgba(46,158,68,.14); }
+.tm-status.warn { background: rgba(243,156,18,.16); }
+.tm-status.err { background: rgba(201,42,42,.14); color: var(--danger); }
+.tm-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tm-code code { font: 700 20px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .08em; padding: 8px 12px; border-radius: 10px; background: var(--chip); user-select: all; -webkit-user-select: all; }
