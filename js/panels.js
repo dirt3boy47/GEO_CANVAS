@@ -750,6 +750,7 @@
       '<div class="pop-title small">Offline imagery</div><p class="hint" style="margin:0 0 6px">Saves Queensland aerial imagery for the area on screen (up to 4 zoom levels closer) so it shows without internet.</p>' +
       '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Save this area for offline use</button><button class="btn" id="st-clear">Delete saved imagery</button></div><p class="hint" id="st-off-msg"></p>' +
       '<div class="pop-title small">Storage</div><p class="hint" id="st-store" style="margin:0">Checking…</p>' +
+      '<div class="pop-title small">Version</div><p class="hint" style="margin:0">GeoCanvas ' + GC.VERSION + '</p>' +
       '<div class="pop-title small">Tips</div><p class="hint" style="margin:0">Add GeoCanvas to your Home Screen (Share › Add to Home Screen) so it opens full screen and Safari keeps its data. Back up projects regularly — clearing Safari website data deletes them.</p>' +
       '<div class="actions"><button class="btn primary" data-a="ok">Done</button></div>';
     GC.modal(html, function (el, close) {
@@ -821,7 +822,19 @@
       GC.openProject(GC.newProject());
     });
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-      navigator.serviceWorker.register('sw.js').catch(function () { /* offline support unavailable */ });
+      // A new version takes over as soon as it is installed: save, then reload once into it.
+      var hadController = !!navigator.serviceWorker.controller, reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (!hadController || reloading) return;
+        reloading = true;
+        GC.toast('GeoCanvas has been updated. Reloading…');
+        var go = function () { if (GC.gestureActive && GC.gestureActive()) { setTimeout(go, 1000); return; } GC.saveNow().then(function () { location.reload(); }, function () { location.reload(); }); };
+        setTimeout(go, 800);
+      });
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        // A Home Screen app can stay open for days: look for a new version whenever it comes back to the front.
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+      }, function () { /* offline support unavailable */ });
     }
   }
   function welcome() {
