@@ -135,6 +135,8 @@
   var EMPTY = { layers: {}, order: [], meta: {}, files: {} };
   var META = ['name', 'notes', 'basemap'];
   var fileCache = {}; // "pid:lid" → [{n, h}] (imported source files never change for a layer)
+  var photoHash = {}; // "pid:photoId" → blob hash (a photo never changes once taken)
+  function photoRefs(layers) { return GC.photos ? GC.photos.refsIn(layers.filter(Boolean)) : {}; }
 
   /** Downloads remote layers the merge may need, and hashes local source files not yet known. */
   function prefetch(p, base, man) {
@@ -171,6 +173,12 @@
         });
         return Promise.all(parts).then(function (ps) { l[o.coll] = [].concat.apply([], ps); pre.remote[lid] = l; });
       }));
+    });
+    // photo hashes (read once per photo)
+    Object.keys(photoRefs(p.layers)).forEach(function (id) {
+      var k = p.id + ':' + id; if (photoHash[k]) return;
+      if (B.photos && B.photos[id]) { photoHash[k] = B.photos[id]; return; }
+      jobs.push(Store.getFile(p.id, '_photos', id + '.jpg').then(function (d) { if (d) photoHash[k] = hash(fileB64(d)); }));
     });
     return Promise.all(jobs).then(function () { return pre; });
   }
@@ -231,7 +239,11 @@
       var f = src[id] === 'remote' ? R.files[id] : (fileCache[p.id + ':' + id] || R.files[id] || B.files[id]);
       if (f && f.length) files[id] = f;
     });
-    return { out: out, src: src, order: order, meta: meta, files: files };
+    var photos = {};
+    Object.keys(photoRefs(order.map(function (id) { return out[id]; }))).forEach(function (id) {
+      var h = photoHash[p.id + ':' + id] || (R.photos || {})[id] || (B.photos || {})[id]; if (h) photos[id] = h;
+    });
+    return { out: out, src: src, order: order, meta: meta, files: files, photos: photos };
   }
 
   /** Puts the merged result into the project (and onto the map when it is the open one). */
@@ -282,9 +294,10 @@
       if (c.gh) blobs.push(c.gh);
     });
     Object.keys(res.files).forEach(function (id) { res.files[id].forEach(function (f) { blobs.push(f.h); }); });
+    Object.keys(res.photos).forEach(function (id) { blobs.push(res.photos[id]); });
     var seen = {}; blobs = blobs.filter(function (h) { if (seen[h]) return false; seen[h] = true; return true; });
     return { v: 1, device: cfg().device || '', meta: { name: res.meta.name, notes: res.meta.notes, basemap: res.meta.basemap, view: p.view, created: p.created },
-      order: res.order, layers: layers, files: res.files, blobs: blobs };
+      order: res.order, layers: layers, files: res.files, photos: res.photos, blobs: blobs };
   }
   function differs(a, b) {
     if (!b) return true;
@@ -302,14 +315,20 @@
   }
 
   function downloadFiles(p, res) {
-    var jobs = Object.keys(res.files).filter(function (id) { return res.src[id] !== 'local'; }).map(function (id) {
+    var photoJob = Store.fileNames(p.id, '_photos').then(function (names) {
+      var have = {}; names.forEach(function (n) { have[n] = true; });
+      return Object.keys(res.photos).filter(function (id) { return !have[id + '.jpg']; }).reduce(function (chain, id) {
+        return chain.then(function () { return getBlob(p.id, res.photos[id]).then(function (b64) { photoHash[p.id + ':' + id] = res.photos[id]; return Store.putFile(p.id, '_photos', id + '.jpg', b64ToAb(b64)); }); });
+      }, Promise.resolve());
+    });
+    var jobs = [photoJob].concat(Object.keys(res.files).filter(function (id) { return res.src[id] !== 'local'; }).map(function (id) {
       return Store.getFiles(p.id, id).then(function (have) {
         var names = {}; have.forEach(function (f) { names[f.name] = true; });
         return Promise.all(res.files[id].filter(function (f) { return !names[f.n]; }).map(function (f) {
           return getBlob(p.id, f.h).then(function (b64) { return Store.putFile(p.id, id, f.n, b64ToAb(b64)); });
         })).then(function () { fileCache[p.id + ':' + id] = res.files[id]; });
       });
-    });
+    }));
     return Promise.all(jobs);
   }
 
@@ -327,6 +346,11 @@
           return Store.getFiles(p.id, id).then(function (fs) { var hit = fs.filter(function (x) { return x.name === f.n; })[0]; if (!hit) throw new Error('An imported file of “' + res.out[id].name + '” is missing on this iPad.'); return fileB64(hit.data); });
         };
       });
+    });
+    Object.keys(res.photos).forEach(function (id) {
+      producers[res.photos[id]] = producers[res.photos[id]] || function () {
+        return Store.getFile(p.id, '_photos', id + '.jpg').then(function (d) { if (!d) throw new Error('A photo is missing on this iPad.'); return fileB64(d); });
+      };
     });
     return api('POST', 'projects/' + p.id + '/missing', { hashes: man.blobs }).then(function (r) {
       var list = r.missing.slice(), next = function () {
@@ -370,8 +394,10 @@
               var rl = {}; Object.keys(man.layers).forEach(function (id) { var o = pre.remote[id] || res.out[id]; if (o && info(o).h === man.layers[id]) rl[id] = o; });
               var prev = {}; Object.keys(man.layers).forEach(function (id) { if (base && base.layers[id] && base.layers[id].h === man.layers[id]) prev[id] = base.layers[id]; });
               p.cloud = baseOf(p, rl, man.order, man.meta, man.files, rev, prev);
+              p.cloud.photos = man.photos || {};
             }
             var resBase = baseOf(p, res.out, res.order, res.meta, res.files, rev);
+            resBase.photos = res.photos;
             return downloadFiles(p, res).then(function () {
               if (!differs(mf, man)) { p.cloud = resBase; return Store.saveProject(p, {}).then(function () { return 'ok'; }); }
               return upload(p, res, mf).then(function () {

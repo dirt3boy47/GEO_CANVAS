@@ -35,6 +35,7 @@
     <symbol id="i-gpoly" viewBox="0 0 24 24"><path d="M5 6.5 15 4l5 8-6 8-9-3z" fill="currentColor" fill-opacity=".35" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
     <symbol id="i-grip" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></g></symbol>
     <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 13l1.8 1.8M9.5 10.5l2.6 2.6M12 8l1.8 1.8M14.5 5.5l2.6 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.2" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
     <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
@@ -159,6 +160,11 @@
 
 <div id="popover-shapes" class="panel pop" hidden><div id="shape-tools"></div></div>
 
+<div id="photo-view" hidden>
+  <img id="pv-img" alt="">
+  <button class="pv-btn" id="pv-prev" aria-label="Previous photo">‹</button><button class="pv-btn" id="pv-next" aria-label="Next photo">›</button>
+  <div id="pv-bar"><span id="pv-cap"></span><span class="spacer"></span><button class="btn" id="pv-share">Share / Save</button><button class="btn danger" id="pv-del">Remove</button><button class="btn primary" id="pv-close">Close</button></div>
+</div>
 <div id="measure-panel" class="panel pop" hidden>
   <div class="pop-title">Measure <button class="ib" id="ms-close" title="Close measuring" aria-label="Close">&times;</button></div>
   <div class="seg" id="ms-mode"><button data-m="line" class="on">Line</button><button data-m="area">Area</button></div>
@@ -178,7 +184,7 @@
   <div class="pop-title small">Waypoint</div>
   <input id="wp-name" type="text" placeholder="Name (e.g. Outcrop 3)">
   <input id="wp-note" type="text" placeholder="Note">
-  <div class="row-btns"><button class="btn primary" id="gps-wp">Drop waypoint here</button></div>
+  <div class="row-btns"><button class="btn primary" id="gps-wp">Drop waypoint here</button><button class="btn" id="gps-photo">📷 Photo waypoint</button></div>
 </div>
 
 <div id="hud" class="panel"><span id="hud-coord">—</span><span id="hud-zoom"></span></div>
@@ -199,6 +205,7 @@
 <script src="js/exporters.js"></script>
 <script src="js/app.js"></script>
 <script src="js/draw.js"></script>
+<script src="js/photos.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/measure.js"></script>
 <script src="js/cloud.js"></script>

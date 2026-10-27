@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-27.5' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-27.6' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -200,7 +200,8 @@
   GC.symbolSVG = function (sym, color) { var s = GC.SYMBOLS[sym] || GC.SYMBOLS.pin; return '<svg viewBox="0 0 24 24">' + s.svg.replace(/"C"/g, '"' + color + '"') + '</svg>'; };
   function markerIcon(el) {
     var label = el.title ? '<span class="ll-symbol-label">' + GC.esc(el.title) + '</span>' : '';
-    return L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div class="ll-symbol" style="width:30px;height:30px;position:relative">' + GC.symbolSVG(el.symbol, el.color) + label + '</div>' });
+    var badge = el.photos && el.photos.length ? '<span class="ph-badge">' + el.photos.length + '</span>' : '';
+    return L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div class="ll-symbol" style="width:30px;height:30px;position:relative">' + GC.symbolSVG(el.symbol, el.color) + label + badge + '</div>' });
   }
 
   function addItemView(v, l, el) {
@@ -348,7 +349,7 @@
       (l.waypoints || []).forEach(function (w) {
         var m = L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
         m._gcWp = w;
-        if (w.name) m.bindTooltip(GC.esc(w.name), { permanent: (l.waypoints.length < 150), direction: 'right', offset: [8, 0], className: 'gc-label' });
+        if (w.name) m.bindTooltip(GC.esc(w.name) + (w.photos && w.photos.length ? ' 📷' : ''), { permanent: (l.waypoints.length < 150), direction: 'right', offset: [8, 0], className: 'gc-label' });
         v.group.addLayer(m);
       });
     }
@@ -517,7 +518,7 @@
         var col = gt === 'Point' || gt === 'MultiPoint' ? (f.properties && f.properties['icon-color']) || st.fillColor : st.color;
         out.push('<li class="tn' + (off || hf[nd] ? ' off' : '') + (nd === sel ? ' sel' : '') + '" data-n="p' + nd + '" style="--d:' + depth + '"><span class="tw-sp"></span>' +
           '<svg class="ti" style="color:' + GC.esc(col || '#888') + '"><use xlink:href="#i-' + (GEOM_ICON[gt] || 'gpt') + '"/></svg>' +
-          '<span class="tname" data-act="go">' + GC.esc(GC.featName(l, nd)) + '</span>' +
+          '<span class="tname" data-act="go">' + GC.esc(GC.featName(l, nd)) + (l.featPhotos && l.featPhotos[nd] ? ' <span class="ph-count">📷 ' + l.featPhotos[nd].length + '</span>' : '') + '</span>' +
           '<button class="ib" data-act="tvis" title="' + (hf[nd] ? 'Show' : 'Hide') + '">' + ICON(hf[nd] ? 'eyeoff' : 'eye') + '</button></li>');
       } else {
         var k = 'f' + nd.id, open = GC.isOpen(l.id + ':' + nd.id, nd.o);

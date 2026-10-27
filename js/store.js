@@ -1,7 +1,7 @@
 /* GeoCanvas web — project storage in IndexedDB.
    projects: {id, name, created, modified, notes, view, basemap, layerOrder, activeLayer}
    layers:   one record per layer (key "projectId:layerId"), so a save rewrites only changed layers.
-   files:    original imported files (key "projectId:layerId:name"). */
+   files:    original imported files (key "projectId:layerId:name"); photos under the layer id "_photos". */
 (function (global) {
   'use strict';
   var db = null, memory = null;
@@ -73,6 +73,9 @@
     deleteLayer: function (pid, lid) { return Promise.all([del('layers', pid + ':' + lid), delPrefix('files', pid + ':' + lid + ':')]); },
     deleteProject: function (id) { return Promise.all([del('projects', id), delPrefix('layers', id + ':'), delPrefix('files', id + ':')]); },
     putFile: function (pid, lid, name, data) { return put('files', pid + ':' + lid + ':' + name, data); },
+    getFile: function (pid, lid, name) { return get('files', pid + ':' + lid + ':' + name); },
+    /** Names of a layer's stored files, without reading them. */
+    fileNames: function (pid, lid) { var pre = pid + ':' + lid + ':'; return keys('files').then(function (ks) { return ks.filter(function (k) { return String(k).indexOf(pre) === 0; }).map(function (k) { return String(k).slice(pre.length); }); }); },
     getFiles: function (pid, lid) {
       var pre = pid + ':' + lid + ':';
       return keys('files').then(function (ks) { ks = ks.filter(function (k) { return String(k).indexOf(pre) === 0; }); return Promise.all(ks.map(function (k) { return get('files', k).then(function (d) { return { name: String(k).slice(pre.length), data: d }; }); })); });

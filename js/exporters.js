@@ -34,6 +34,7 @@
         p.gc_text = el.text; p.name = el.text; geom = { type: 'Point', coordinates: [r8(el.at[0]), r8(el.at[1])] };
       } else {
         p.name = el.title || 'Marker'; p.gc_symbol = el.symbol; p.gc_note = el.note || ''; p['marker-color'] = el.color;
+        if (el.photos && el.photos.length) p.gc_photos = el.photos.map(function (r) { return r.id; }).join(',');
         geom = { type: 'Point', coordinates: [r8(el.at[0]), r8(el.at[1])] };
       }
       return { type: 'Feature', properties: p, geometry: geom };
@@ -47,7 +48,7 @@
       if (l.kind === 'drawing') feats = feats.concat(itemFeatures(l, l.items || [], outlines));
       else if (l.kind === 'vector') (l.geojson.features || []).forEach(function (f) { var c = JSON.parse(JSON.stringify(f)); c.properties = Object.assign({ gc_layer: l.name }, c.properties); feats.push(c); });
       else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: 'gps_track', name: t.name, distance_m: Math.round(t.distance || 0), stroke: '#ff3d00' }, geometry: { type: 'LineString', coordinates: t.points.map(function (p) { return [r8(p[0]), r8(p[1])]; }) } }); });
-      else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: 'waypoint', name: w.name, note: w.note, time: w.time, accuracy_m: w.acc }, geometry: { type: 'Point', coordinates: [r8(w.lon), r8(w.lat)] } }); });
+      else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: 'waypoint', name: w.name, note: w.note, time: w.time, accuracy_m: w.acc, gc_photos: w.photos && w.photos.length ? w.photos.map(function (r) { return r.id; }).join(',') : undefined }, geometry: { type: 'Point', coordinates: [r8(w.lon), r8(w.lat)] } }); });
     });
     return feats;
   }
@@ -73,37 +74,48 @@
 
   var KML_SKIP = /^(name|description|stroke|stroke-opacity|stroke-width|fill|fill-opacity|marker-.*|styleUrl|styleHash|styleMapHash|icon|icon-.*|label-.*|visibility|open|coordinateProperties|@.*)$/;
   function cdata(t) { return '<![CDATA[' + String(t).replace(/\]\]>/g, ']]]]><![CDATA[>') + ']]>'; }
-  function placemark(f, visible) {
+  /** opts.kmz: photos are packed in the KMZ as files/<id>.jpg and shown in the placemark's balloon. */
+  function placemark(f, visible, opts) {
     var p = f.properties || {}, st = '<Style>';
     if (p.stroke) st += '<LineStyle><color>' + kmlColor(p.stroke, p['stroke-opacity'] == null ? 1 : p['stroke-opacity']) + '</color><width>' + (p['stroke-width'] || 2) + '</width></LineStyle>';
     if (p.fill) st += '<PolyStyle><color>' + kmlColor(p.fill, p['fill-opacity'] == null ? 0.3 : p['fill-opacity']) + '</color>' + (p.gc_type === 'stroke' ? '<outline>0</outline>' : '') + '</PolyStyle>';
     else if (f.geometry && /Polygon/.test(f.geometry.type)) st += '<PolyStyle><fill>0</fill></PolyStyle>';
     if (p.gc_type === 'text') st += '<IconStyle><scale>0</scale></IconStyle><LabelStyle><color>' + kmlColor(p.gc_color || '#ffffff', 1) + '</color></LabelStyle>';
     var ic = p['icon-color'] || p['marker-color'];
-    if (ic || (p.icon && /^https?:/i.test(p.icon)) || p['icon-scale'] != null) st += '<IconStyle>' + (ic ? '<color>' + kmlColor(ic, p['icon-opacity'] == null ? 1 : p['icon-opacity']) + '</color>' : '') + (p['icon-scale'] != null ? '<scale>' + p['icon-scale'] + '</scale>' : '') + (p.icon && /^https?:/i.test(p.icon) ? '<Icon><href>' + esc(p.icon) + '</href></Icon>' : '') + '</IconStyle>';
+    var href = p.icon && (/^https?:/i.test(p.icon) || (opts && opts.kmz)) ? p.icon : null; // icons inside a KMZ are copied along in KMZ exports
+    if (ic || href || p['icon-scale'] != null) st += '<IconStyle>' + (ic ? '<color>' + kmlColor(ic, p['icon-opacity'] == null ? 1 : p['icon-opacity']) + '</color>' : '') + (p['icon-scale'] != null ? '<scale>' + p['icon-scale'] + '</scale>' : '') + (href ? '<Icon><href>' + esc(href) + '</href></Icon>' : '') + '</IconStyle>';
     st += '</Style>';
     var desc = p.description == null ? '' : (typeof p.description === 'object' ? p.description.value || '' : String(p.description));
+    if (opts && opts.kmz && p.gc_photos) {
+      if (desc && !/<[a-z]/i.test(desc)) desc = esc(desc).replace(/\n/g, '<br>');
+      if (p.gc_note && !desc) desc = esc(p.gc_note).replace(/\n/g, '<br>');
+      desc += String(p.gc_photos).split(',').map(function (id) { return '<p><img src="files/' + esc(id) + '.jpg" width="480"></p>'; }).join('');
+    }
     var keys = Object.keys(p).filter(function (k) { return !KML_SKIP.test(k) && p[k] != null; });
     var ext = keys.length ? '<ExtendedData>' + keys.map(function (k) { return '<Data name="' + esc(k) + '"><value>' + esc(typeof p[k] === 'object' ? JSON.stringify(p[k]) : p[k]) + '</value></Data>'; }).join('') + '</ExtendedData>' : '';
     return '<Placemark><name>' + esc(p.name || p.gc_tool || p.gc_type || 'Feature') + '</name>' + (visible === false ? '<visibility>0</visibility>' : '') + (desc ? '<description>' + cdata(desc) + '</description>' : '') + st + ext + kmlGeom(f.geometry) + '</Placemark>\n';
   }
   /** Imported GIS layers keep their KML folder tree, descriptions and visibility. */
-  function vectorKml(l) {
-    var feats = l.geojson.features || [], hf = l.hiddenFeats || {};
+  function vectorKml(l, opts) {
+    var feats = l.geojson.features || [], hf = l.hiddenFeats || {}, fp = l.featPhotos || {};
     var tree = l.tree || feats.map(function (f, i) { return i; });
     return (function walk(nodes) {
       return nodes.map(function (nd) {
-        if (typeof nd === 'number') return feats[nd] && feats[nd].geometry ? placemark(feats[nd], !hf[nd]) : '';
+        if (typeof nd === 'number') {
+          var f = feats[nd]; if (!f || !f.geometry) return '';
+          if (fp[nd] && fp[nd].length) { f = { type: 'Feature', geometry: f.geometry, properties: Object.assign({}, f.properties, { gc_photos: fp[nd].map(function (r) { return r.id; }).join(',') }) }; }
+          return placemark(f, !hf[nd], opts);
+        }
         return '<Folder><name>' + esc(nd.n) + '</name>' + (nd.h ? '<visibility>0</visibility>' : '') + (nd.d ? '<description>' + cdata(nd.d) + '</description>' : '') + '\n' + walk(nd.c) + '</Folder>\n';
       }).join('');
     })(tree);
   }
 
-  function kml(project, layerIds, outlines) {
+  function kml(project, layerIds, outlines, opts) {
     var body = '';
     project.layers.forEach(function (l) {
       if (layerIds.indexOf(l.id) < 0 || l.kind === 'raster') return;
-      var pm = l.kind === 'vector' ? vectorKml(l) : collect(project, [l.id], outlines).map(function (f) { return placemark(f); }).join('');
+      var pm = l.kind === 'vector' ? vectorKml(l, opts) : collect(project, [l.id], outlines).map(function (f) { return placemark(f, true, opts); }).join('');
       body += '<Folder><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility>\n' + pm + '</Folder>\n';
     });
     return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>' + esc(project.name) + '</name><description>Exported from GeoCanvas</description>\n' + body + '</Document></kml>\n';

@@ -453,25 +453,34 @@
   function placeMarker(m, existing) {
     var l = existing ? existing.l : activeLayer(); if (!l) return;
     var cur = existing ? existing.el : { symbol: GC.settings.symbol || 'pin', color: GC.settings.color === '#ffffff' ? '#e53935' : GC.settings.color, title: '', note: '' };
-    var sym = cur.symbol, color = cur.color;
+    var sym = cur.symbol, color = cur.color, photos = (cur.photos || []).slice();
     var html = '<h2>' + (existing ? 'Edit marker' : 'New marker') + '</h2>' +
       '<div id="mk-syms" style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px">' + Object.keys(GC.SYMBOLS).map(function (k) { return '<button class="btn" data-s="' + k + '" title="' + GC.SYMBOLS[k].label + '" style="padding:6px;width:46px;height:46px">' + GC.symbolSVG(k, color) + '</button>'; }).join('') + '</div>' +
       '<label class="custom" style="margin:0 0 8px">Colour <input type="color" id="mk-color" value="' + color + '"></label>' +
       '<label class="field" style="margin:8px 0">Name<input type="text" id="mk-title" value="' + GC.esc(cur.title || '') + '" placeholder="e.g. Sample site 4"></label>' +
       '<label class="field" style="margin:8px 0">Note<textarea id="mk-note" rows="4" placeholder="Observations…">' + GC.esc(cur.note || '') + '</textarea></label>' +
+      '<div class="field" style="margin:8px 0">Photos<div id="mk-photos"></div></div>' +
       '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="ok">' + (existing ? 'Save' : 'Place marker') + '</button></div>';
     GC.modal(html, function (el, close) {
       var paint = function () { Array.prototype.forEach.call(el.querySelectorAll('[data-s]'), function (b) { var k = b.getAttribute('data-s'); b.innerHTML = GC.symbolSVG(k, color); b.style.boxShadow = k === sym ? '0 0 0 2.5px var(--accent)' : ''; }); };
       paint();
+      var paintPhotos = function () {
+        GC.photos.strip(el.querySelector('#mk-photos'), photos, {
+          onAdd: function () { GC.photos.pick().then(function (refs) { if (refs.length) { photos = photos.concat(refs); if (sym === 'pin' && !existing && photos.length === refs.length) { sym = 'camera'; paint(); } paintPhotos(); } }); },
+          onChange: function (left) { photos = left; paintPhotos(); }
+        });
+      };
+      paintPhotos();
       el.querySelector('#mk-syms').onclick = function (e) { var b = e.target.closest('[data-s]'); if (b) { sym = b.getAttribute('data-s'); paint(); } };
       el.querySelector('#mk-color').oninput = function () { color = el.querySelector('#mk-color').value; paint(); };
       el.querySelector('[data-a=no]').onclick = close;
       el.querySelector('[data-a=ok]').onclick = function () {
         var title = el.querySelector('#mk-title').value.trim(), note = el.querySelector('#mk-note').value.trim();
         GC.settings.symbol = sym; GC.saveSettings(); close();
-        if (existing) { GC.editLayer(l.id, function (items) { return items.map(function (x) { if (x.id !== existing.el.id) return x; var c = JSON.parse(JSON.stringify(Ink.stripCache(x))); c.symbol = sym; c.color = color; c.title = title; c.note = note; return c; }); }); return; }
+        if (existing) { GC.editLayer(l.id, function (items) { return items.map(function (x) { if (x.id !== existing.el.id) return x; var c = JSON.parse(JSON.stringify(Ink.stripCache(x))); c.symbol = sym; c.color = color; c.title = title; c.note = note; if (photos.length) c.photos = photos; else delete c.photos; return c; }); }); return; }
         var ll = Geo.unmerc(m[0], m[1]);
         var mk = { id: Ink.uid(), type: 'marker', at: [ll[0], ll[1]], symbol: sym, color: color, title: title, note: note, created: Date.now() };
+        if (photos.length) mk.photos = photos;
         GC.editLayer(l.id, function (items) { items.push(mk); return items; });
       };
     });

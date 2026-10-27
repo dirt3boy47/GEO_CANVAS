@@ -145,12 +145,22 @@
   };
 
   // ======================= inspector =======================
-  function openInspector(title, sub, rows, actions) {
+  /** photos: { refs, onChange(refs) } shows a photo strip (with Add when the point is editable). */
+  function openInspector(title, sub, rows, actions, photos) {
     $('insp-title').textContent = title; $('insp-sub').textContent = sub || '';
     var h = '<table>' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + (r[2] ? r[1] : esc(r[1])) + '</td></tr>'; }).join('') + '</table>';
     if (actions && actions.length) h += '<div class="row-btns" style="margin:12px 0 0">' + actions.map(function (a, i) { return '<button class="btn' + (a.danger ? ' danger' : '') + '" data-i="' + i + '">' + esc(a.label) + '</button>'; }).join('') + '</div>';
-    $('insp-body').innerHTML = h;
+    $('insp-body').innerHTML = (photos ? '<div id="insp-photos"></div>' : '') + h;
     Array.prototype.forEach.call($('insp-body').querySelectorAll('[data-i]'), function (b) { b.onclick = function () { actions[+b.getAttribute('data-i')].fn(); }; });
+    if (photos) {
+      var paint = function (refs) {
+        GC.photos.strip($('insp-photos'), refs, photos.onChange ? {
+          onAdd: function () { GC.photos.pick().then(function (more) { if (more.length) { refs = refs.concat(more); photos.onChange(refs); paint(refs); } }); },
+          onChange: function (left) { refs = left; photos.onChange(left); paint(left); }
+        } : {});
+      };
+      paint(photos.refs || []);
+    }
     $('inspector').hidden = false;
     $('gps-panel').hidden = true;
   }
@@ -314,9 +324,17 @@
     root.innerHTML = (tpl || opensWithName ? '' : '<div class="gb-title">' + esc(name) + '</div>') + '<div class="gb-html"></div>' +
       (!tpl && rows.length ? (html ? '<details class="gb-more"><summary>Data (' + rows.length + ')</summary>' + table + '</details>' : table) : '') +
       (!html && desc ? '<div class="gb-text' + (rows.length ? ' note' : '') + '">' + linkify(desc) + '</div>' : '') +
-      footer(l, f, tapped ? ll : null);
+      '<div class="gb-photos"></div>' + footer(l, f, tapped ? ll : null);
     if (html) resolveKmz(l, html).then(function (h) { root.querySelector('.gb-html').appendChild(htmlFrame(h, maxW, refit)); });
     var det = root.querySelector('details'); if (det) det.addEventListener('toggle', refit);
+    var paintPhotos = function () {
+      var refs = (l.featPhotos && l.featPhotos[idx]) || [], box = root.querySelector('.gb-photos');
+      var save = function (left) { l.featPhotos = l.featPhotos || {}; if (left.length) l.featPhotos[idx] = left; else delete l.featPhotos[idx]; GC.markDirty(l.id); GC.refreshLayers(); paintPhotos(); };
+      GC.photos.strip(box, refs, idx < 0 ? {} : { onAdd: function () { GC.photos.pick().then(function (more) { if (more.length) save(refs.concat(more)); }); }, onChange: save });
+      Array.prototype.forEach.call(box.querySelectorAll('img'), function (im) { im.addEventListener('load', refit); });
+      setTimeout(refit, 250);
+    };
+    paintPhotos();
     root.querySelector('[data-a=zoom]').onclick = function () { var b = GC.folderBounds(l, idx); if (b) { if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 18)); else map.fitBounds(b, { padding: [80, 80], maxZoom: 19 }); } };
     root.querySelector('[data-a=hide]').onclick = function () { map.closePopup(pop); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); };
     highlight(f);
@@ -337,7 +355,7 @@
     openBalloon(l, f, a);
   };
   GC.inspectItem = function (l, el) {
-    var rows = [['Layer', l.name], ['Created', GC.fmtTime(el.created || Date.now())]], actions = [], title;
+    var rows = [['Layer', l.name], ['Created', GC.fmtTime(el.created || Date.now())]], actions = [], title, photos = null;
     if (el.type === 'stroke') {
       title = Ink.INKS[el.ink].label + ' stroke';
       rows.push(['Length', GC.fmtDist(Geo.pathLength(el.pts))], ['Ink width', (el.width * Geo.metersPerPixel(el.z0, el.pts[0][1])).toFixed(2) + ' m on the ground'], ['Points', String(el.pts.length)]);
@@ -356,10 +374,14 @@
       if (el.note) rows.push(['Note', el.note]);
       rows = rows.concat(posRows(el.at[0], el.at[1]));
       if (!l.locked) actions.push({ label: 'Edit marker', fn: function () { GC.closeInspector(); GC.editMarker(l, el); } });
+      photos = { refs: el.photos || [], onChange: l.locked ? null : function (refs) { // markers are immutable: replace it (undoable)
+        var cur = l.items.filter(function (x) { return x.id === el.id; })[0]; if (!cur) return;
+        GC.editLayer(l.id, function (items) { return items.map(function (x) { if (x !== cur) return x; var c = JSON.parse(JSON.stringify(Ink.stripCache(x))); if (refs.length) c.photos = refs; else delete c.photos; el = c; return c; }); });
+      } };
     }
     if (!l.locked) actions.push({ label: 'Delete', danger: true, fn: function () { GC.closeInspector(); GC.editLayer(l.id, function (items) { return items.filter(function (x) { return x.id !== el.id; }); }); GC.toast('Deleted. Undo is available.'); } });
     if (hl) { map.removeLayer(hl); hl = null; }
-    openInspector(title, el.type === 'marker' ? 'Marker' : 'Drawn ' + el.type, rows, actions);
+    openInspector(title, el.type === 'marker' ? 'Marker' : 'Drawn ' + el.type, rows, actions, photos);
   };
   GC.inspectTrack = function (l, t) {
     var dur = t.points.length > 1 ? (t.points[t.points.length - 1][2] - t.points[0][2]) / 1000 : 0;
@@ -371,7 +393,8 @@
     if (w.note) rows.unshift(['Note', w.note]);
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
-    openInspector(w.name || 'Waypoint', l.name, rows, l.locked ? [] : [{ label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }]);
+    openInspector(w.name || 'Waypoint', l.name, rows, l.locked ? [] : [{ label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }],
+      { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } });
   };
 
   // ======================= GPS =======================
@@ -477,15 +500,19 @@
     if (gps.fix) recordPoint(gps.fix);
   };
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && gps.rec && navigator.wakeLock && !gps.wake) navigator.wakeLock.request('screen').then(function (w) { gps.wake = w; }, function () {}); });
-  $('gps-wp').onclick = function () {
-    var useFix = gps.fix && Date.now() - gps.fix.t < 60000, c = map.getCenter();
-    var lat = useFix ? gps.fix.lat : c.lat, lon = useFix ? gps.fix.lon : c.lng;
+  /** Position for a new waypoint: a fresh GPS fix, else the photo's own location, else the map centre. */
+  function dropWaypoint(photos) {
+    var useFix = gps.fix && Date.now() - gps.fix.t < 60000, c = map.getCenter(), geo = !useFix && photos && photos.filter(function (r) { return r.lat != null; })[0];
+    var lat = useFix ? gps.fix.lat : geo ? geo.lat : c.lat, lon = useFix ? gps.fix.lon : geo ? geo.lon : c.lng;
     var l = gpsLayer('waypoints', 'Waypoints');
-    var w = { lat: lat, lon: lon, ele: useFix && gps.fix.alt != null ? gps.fix.alt : null, acc: useFix ? gps.fix.acc : null, time: Date.now(), name: $('wp-name').value.trim() || 'WP' + ((l.waypoints.length + 1 < 10 ? '0' : '') + (l.waypoints.length + 1)), note: $('wp-note').value.trim() };
+    var w = { lat: lat, lon: lon, ele: useFix && gps.fix.alt != null ? gps.fix.alt : null, acc: useFix ? gps.fix.acc : null, time: Date.now(), name: $('wp-name').value.trim() || (photos ? 'Photo ' : 'WP') + ((l.waypoints.length + 1 < 10 ? '0' : '') + (l.waypoints.length + 1)), note: $('wp-note').value.trim() };
+    if (photos && photos.length) w.photos = photos;
     l.waypoints.push(w); GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id, true); GC.refreshLayers();
     $('wp-name').value = ''; $('wp-note').value = '';
-    GC.toast(useFix ? 'Waypoint “' + w.name + '” saved at your GPS position (±' + Math.round(w.acc) + ' m).' : 'No current GPS fix — waypoint “' + w.name + '” placed at the map centre (crosshair).', useFix ? null : 'warn');
-  };
+    GC.toast(useFix ? 'Waypoint “' + w.name + '” saved at your GPS position (±' + Math.round(w.acc) + ' m).' : geo ? 'Waypoint “' + w.name + '” placed where the photo was taken.' : 'No current GPS fix — waypoint “' + w.name + '” placed at the map centre (crosshair).', useFix || geo ? null : 'warn');
+  }
+  $('gps-wp').onclick = function () { dropWaypoint(null); };
+  $('gps-photo').onclick = function () { GC.photos.pick().then(function (refs) { if (refs.length) dropWaypoint(refs); }); };
 
   // ======================= search =======================
   var searchMarker = null;
@@ -576,7 +603,22 @@
   function build(fmt, ids, outlines, res) {
     var p = GC.project, base = slug(p.name);
     if (fmt === 'kml') return Promise.resolve({ blob: new Blob([Exporters.kml(p, ids, outlines)], { type: 'application/vnd.google-earth.kml+xml' }), name: base + '.kml' });
-    if (fmt === 'kmz') { var z = new JSZip(); z.file('doc.kml', Exporters.kml(p, ids, outlines)); return z.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.google-earth.kmz' }).then(function (b) { return { blob: b, name: base + '.kmz' }; }); }
+    if (fmt === 'kmz') {
+      var z = new JSZip(), photoIds = Object.keys(GC.photos.refsIn(p.layers.filter(function (l) { return ids.indexOf(l.id) >= 0; })));
+      z.file('doc.kml', Exporters.kml(p, ids, outlines, { kmz: true }));
+      // Images and icons inside imported KMZs (description photos, placemark icons) travel with them.
+      var carry = p.layers.filter(function (l) { return ids.indexOf(l.id) >= 0 && l.kind === 'vector' && l.hasSources && /kmz/i.test(l.format || ''); }).map(function (l) {
+        return Store.getFiles(p.id, l.id).then(function (fs) {
+          var k = fs.filter(function (f) { return /\.kmz$/i.test(f.name); })[0]; if (!k) return;
+          return JSZip.loadAsync(k.data).then(function (src) {
+            return Promise.all(Object.keys(src.files).filter(function (n) { return !src.files[n].dir && !/\.kml$/i.test(n) && !z.file(n); }).map(function (n) { return src.files[n].async('uint8array').then(function (d) { z.file(n, d); }); }));
+          });
+        }).catch(function () { /* original not available: skip */ });
+      });
+      return Promise.all(carry.concat(photoIds.map(function (id) { return GC.photos.blob(id).then(function (b) { if (b) z.file('files/' + id + '.jpg', b); }); })))
+        .then(function () { return z.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.google-earth.kmz' }); })
+        .then(function (b) { return { blob: b, name: base + '.kmz', note: photoIds.length ? photoIds.length + ' photo' + (photoIds.length === 1 ? '' : 's') + ' included; they show in the Google Earth balloons.' : undefined }; });
+    }
     if (fmt === 'geojson') return Promise.resolve({ blob: new Blob([Exporters.geojson(p, ids, outlines)], { type: 'application/geo+json' }), name: base + '.geojson' });
     if (fmt === 'gpx') {
       var hasGpx = p.layers.some(function (l) { return ids.indexOf(l.id) >= 0 && (l.kind === 'track' || l.kind === 'waypoints' || (l.kind === 'vector' && l.geojson.features.some(function (f) { return f.geometry && /Point|LineString/.test(f.geometry.type); })) || (l.kind === 'drawing' && l.items.some(function (x) { return x.type === 'marker' || x.type === 'text'; }))); });
@@ -613,8 +655,10 @@
   function b64ToAb(b) { var s = atob(b), u8 = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i); return u8.buffer; }
   function makeBackup(p) {
     return GC.saveNow().then(function () {
-      return Promise.all(p.layers.filter(function (l) { return l.hasSources; }).map(function (l) {
-        return Store.getFiles(p.id, l.id).then(function (fs) { return fs.map(function (f) { return { layer: l.id, name: f.name, b64: abToB64(f.data instanceof ArrayBuffer ? f.data : new ArrayBuffer(0)) }; }); });
+      var ids = p.layers.filter(function (l) { return l.hasSources; }).map(function (l) { return l.id; });
+      if (Object.keys(GC.photos.refsIn(p.layers)).length) ids.push('_photos');
+      return Promise.all(ids.map(function (lid) {
+        return Store.getFiles(p.id, lid).then(function (fs) { return fs.map(function (f) { return { layer: lid, name: f.name, b64: abToB64(f.data instanceof ArrayBuffer ? f.data : new ArrayBuffer(0)) }; }); });
       }));
     }).then(function (groups) {
       var proj = {}; for (var k in p) if (k !== 'layers' && k !== 'cloud' && k !== 'cloudOff') proj[k] = p[k];
@@ -730,7 +774,7 @@
             close(); GC.busy('Duplicating…');
             GC.saveNow().then(function () { return Store.loadProject(id); }).then(function (p) {
               var oldId = p.id; p.id = Ink.uid(); p.name = p.name + ' copy'; p.created = Date.now(); delete p.cloud; delete p.cloudOff;
-              return Promise.all(p.layers.filter(function (l) { return l.hasSources; }).map(function (l) { return Store.getFiles(oldId, l.id).then(function (fs) { return Promise.all(fs.map(function (f) { return Store.putFile(p.id, l.id, f.name, f.data); })); }); }))
+              return Promise.all(p.layers.filter(function (l) { return l.hasSources; }).map(function (l) { return l.id; }).concat(['_photos']).map(function (lid) { return Store.getFiles(oldId, lid).then(function (fs) { return Promise.all(fs.map(function (f) { return Store.putFile(p.id, lid, f.name, f.data); })); }); }))
                 .then(function () { return Store.saveProject(p, null); }).then(function () { return p; });
             }).then(function (p) { GC.busy(null); GC.toast('Created “' + p.name + '”.'); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); });
           } else if (act === 'del') { close(); deleteProject(meta); }
