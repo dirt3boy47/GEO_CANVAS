@@ -33,9 +33,11 @@
     track: { f: 'tracks', key: function (t) { return 's' + t.started; }, clean: function (t) { return { name: t.name, points: t.points, distance: t.distance, started: t.started }; } },
     waypoints: { f: 'waypoints', key: function (w) { return w.time != null ? 't' + w.time : 'j' + hash(JSON.stringify(w)); }, clean: function (w) { return w; } }
   };
-  var linfo = new WeakMap(), icache = new WeakMap(), dirtyGen = 0;
+  var linfo = new WeakMap(), icache = new WeakMap(), gcache = new WeakMap(), dirtyGen = 0;
+  // Imported GIS geometry is stored as its own blob, so showing/hiding placemarks or restyling re-sends only a few bytes.
+  function geoHash(g) { var h = gcache.get(g); if (!h) { h = hash(JSON.stringify(g)); gcache.set(g, h); } return h; }
   function itemHash(spec, it) { var h = icache.get(it); if (!h) { h = hash(JSON.stringify(spec.clean(it))); icache.set(it, h); } return h; }
-  function propsOf(l) { var spec = COLL[l.kind], o = {}; for (var k in l) if (k !== '_leaflet' && (!spec || k !== spec.f)) o[k] = l[k]; return o; }
+  function propsOf(l) { var spec = COLL[l.kind], o = {}; for (var k in l) if (k !== '_leaflet' && (!spec || k !== spec.f) && !(l.kind === 'vector' && k === 'geojson')) o[k] = l[k]; return o; }
   /** {h, p, spec, keys, ih, packs:[{h,a,b}]} for a layer; cached until the layer is marked dirty. */
   function info(l) {
     var c = linfo.get(l); if (c) return c;
@@ -48,7 +50,8 @@
         if (i === arr.length - 1 || i - start >= 63 || cyrb(c.keys[i], 7) % 12 === 0) { c.packs.push({ h: hash(c.ih.slice(start, i + 1).join(',')), a: start, b: i + 1 }); start = i + 1; }
       }
       c.h = hash(c.p + '|' + spec.f + '|' + c.packs.map(function (x) { return x.h; }).join(','));
-    } else c.h = c.p;
+    } else if (l.kind === 'vector' && l.geojson) { c.gh = geoHash(l.geojson); c.h = hash(c.p + '|geo|' + c.gh); }
+    else c.h = c.p;
     linfo.set(l, c);
     return c;
   }
@@ -60,6 +63,7 @@
   function layerBlob(l) {
     var c = info(l), o = { v: 1, props: propsOf(l) };
     if (c.spec) { o.coll = c.spec.f; o.packs = c.packs.map(function (x) { return x.h; }); }
+    if (c.gh) o.geo = c.gh;
     return JSON.stringify(o);
   }
   function packBlob(l, pk) { var c = info(l); return JSON.stringify(l[c.spec.f].slice(pk.a, pk.b).map(c.spec.clean)); }
@@ -134,10 +138,11 @@
 
   /** Downloads remote layers the merge may need, and hashes local source files not yet known. */
   function prefetch(p, base, man) {
-    var pre = { remote: {} }, B = base || EMPTY, local = {}, packIndex = {};
+    var pre = { remote: {} }, B = base || EMPTY, local = {}, packIndex = {}, geoIndex = {};
     p.layers.forEach(function (l) {
       local[l.id] = l; var c = info(l);
       if (c.spec) c.packs.forEach(function (pk) { packIndex[pk.h] = { l: l, pk: pk }; });
+      if (c.gh) geoIndex[c.gh] = l.geojson;
     });
     var jobs = [];
     // source-file hashes
@@ -154,6 +159,7 @@
       if (rh === bh || rh === lh) return;
       jobs.push(getBlob(p.id, rh).then(function (txt) {
         var o = JSON.parse(txt), l = o.props;
+        if (o.geo) return (geoIndex[o.geo] ? Promise.resolve(geoIndex[o.geo]) : getBlob(p.id, o.geo).then(JSON.parse)).then(function (g) { l.geojson = g; pre.remote[lid] = l; });
         if (!o.coll) { pre.remote[lid] = l; return; }
         var parts = o.packs.map(function (ph) {
           var hit = packIndex[ph];
@@ -273,6 +279,7 @@
     res.order.forEach(function (id) {
       var l = res.out[id], c = info(l); layers[id] = c.h; blobs.push(c.h);
       if (c.spec) c.packs.forEach(function (pk) { blobs.push(pk.h); });
+      if (c.gh) blobs.push(c.gh);
     });
     Object.keys(res.files).forEach(function (id) { res.files[id].forEach(function (f) { blobs.push(f.h); }); });
     var seen = {}; blobs = blobs.filter(function (h) { if (seen[h]) return false; seen[h] = true; return true; });
@@ -312,6 +319,7 @@
       var l = res.out[id], c = info(l);
       producers[c.h] = function () { return Promise.resolve(layerBlob(l)); };
       if (c.spec) c.packs.forEach(function (pk) { producers[pk.h] = function () { return Promise.resolve(packBlob(l, pk)); }; });
+      if (c.gh) producers[c.gh] = function () { return Promise.resolve(JSON.stringify(l.geojson)); };
     });
     Object.keys(res.files).forEach(function (id) {
       res.files[id].forEach(function (f) {

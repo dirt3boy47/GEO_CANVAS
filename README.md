@@ -55,7 +55,8 @@ The next device to turn on cloud sync sets the new passcode (at least 8 characte
 | Import (⤓) | KML, KMZ (incl. ground overlays), shapefiles (select .shp + .dbf + .shx + .prj together, or a ZIP), GeoJSON, GPX, GeoTIFF. GDA2020, GDA94, MGA zones 49–56, AMG, WGS84, Australian Albers and more are converted automatically. Files without a coordinate system are never guessed: you're asked (MGA 56 offered first). |
 | GPS (➤) | Position, accuracy (good/fair/poor), MGA coordinates, altitude, speed, compass, follow-me, track recording, waypoints with notes. Warns when the iPad is Wi-Fi-only (no GPS chip) or the fix is poor/stale. |
 | Export (⤒) | KML, KMZ, GeoJSON, GPX, transparent GeoTIFF, PNG + world file, print/PDF of the map, full project backup. Basemap imagery is never included. |
-| Layers | Show/hide, opacity, lock, reorder, rename, duplicate, delete, export, colours, labels, "Change coordinate system". |
+| Layers | Like Google Earth's Places panel: KML/KMZ folders open with ▸, every folder and placemark has its own eye (hiding a folder hides its contents), drag ⠿ to reorder layers. Tap a placemark in the list to fly to it. Also opacity, lock, rename, duplicate, delete, export, colours, labels, "Change coordinate system". |
+| Placemark details | Tapping a feature opens a Google Earth style balloon: the KML description (HTML tables, links and photos inside the KMZ) or its BalloonStyle, the ExtendedData / shapefile attributes as a table, plus length/area and position. HTML from files is shown sandboxed (scripts never run). |
 | Projects | Saved automatically on the iPad (IndexedDB). Several projects, rename/duplicate/delete, backup and restore. Optional cloud sync between devices (see above). |
 | Offline | After the first visit the app works without internet. Settings › "Save this area for offline use" stores Queensland imagery for the area on screen. |
 

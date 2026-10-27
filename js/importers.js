@@ -54,12 +54,12 @@
   }
 
   // Decides the CRS of a raw collection and returns a vector result or a pending dataset.
-  function finish(r, name, format, raw, declared, formatDefaultWGS84, files, warnings) {
+  function finish(r, name, format, raw, declared, formatDefaultWGS84, files, warnings, extra) {
     var b = bounds(raw);
     if (!isFinite(b[0])) { r.failures.push({ file: name, error: 'No geographic features were found.' }); return; }
     if (r.force && !formatDefaultWGS84) declared = r.force;
     if (declared != null) {
-      r.vectors.push({ name: name, format: format, geojson: (declared === 4326 || declared === 7844) ? raw : project(raw, declared), crs: declared, warnings: warnings, files: files });
+      r.vectors.push(Object.assign({ name: name, format: format, geojson: (declared === 4326 || declared === 7844) ? raw : project(raw, declared), crs: declared, warnings: warnings, files: files }, extra));
     } else if (looksGeographic(b)) {
       if (!formatDefaultWGS84) warnings.unshift('No coordinate system (.prj) was supplied. The coordinates look like latitude/longitude and were treated as WGS84 — use “Change coordinate system” if the layer is misplaced.');
       r.vectors.push({ name: name, format: format, geojson: raw, crs: 4326, assumed: !formatDefaultWGS84, warnings: warnings, files: files });
@@ -138,16 +138,75 @@
   }
 
   // ---------- KML / KMZ ----------
+  function kids(el, tag) { var out = []; for (var c = el.firstElementChild; c; c = c.nextElementSibling) if (c.localName === tag) out.push(c); return out; }
+  function kidText(el, tag) { var k = kids(el, tag)[0]; return k ? k.textContent.trim() : null; }
+  var KML_INTERNAL = /^(name|description|styleUrl|styleHash|styleMapHash|stroke|stroke-opacity|stroke-width|fill|fill-opacity|icon|icon-.*|label-.*|marker-.*|visibility|open|address|phoneNumber|timespan|timestamp|coordinateProperties|@.*)$/;
+  /** Reads a KML document keeping Google Earth's structure: the folder tree, visibility, balloon styles,
+      Data display names and placemark icons stored inside a KMZ. */
   function kmlToResult(r, name, format, kmlText, files, zipEntries) {
     var dom = new DOMParser().parseFromString(kmlText, 'text/xml');
     if (dom.getElementsByTagName('parsererror').length) throw new Error('The KML is not valid XML.');
-    var fc = toGeoJSON.kml(dom);
-    fc.features = fc.features.filter(function (f) { return f.geometry && !(f.properties && f.properties['@geometry-type'] === 'groundoverlay'); });
     var warnings = [];
     if (dom.getElementsByTagName('NetworkLink').length) warnings.push('NetworkLinks (online content) were not loaded.');
-    if (fc.features.length) finish(r, name, format, fc, 4326, true, files, warnings);
+
+    // Balloon templates by style id (StyleMap → its "normal" style).
+    var bal = {}, maps = {};
+    Array.prototype.forEach.call(dom.getElementsByTagName('Style'), function (st) {
+      var b = kids(st, 'BalloonStyle')[0], t = b && kidText(b, 'text');
+      if (t && st.getAttribute('id')) bal['#' + st.getAttribute('id')] = t;
+    });
+    Array.prototype.forEach.call(dom.getElementsByTagName('StyleMap'), function (sm) {
+      kids(sm, 'Pair').forEach(function (pr) { if (kidText(pr, 'key') === 'normal' && sm.getAttribute('id')) maps['#' + sm.getAttribute('id')] = kidText(pr, 'styleUrl'); });
+    });
+    var dnames = {};
+    Array.prototype.forEach.call(dom.getElementsByTagName('Data'), function (d) { var dn = kidText(d, 'displayName'); if (dn && d.getAttribute('name')) dnames[d.getAttribute('name')] = dn; });
+    Array.prototype.forEach.call(dom.getElementsByTagName('SimpleField'), function (d) { var dn = kidText(d, 'displayName'); if (dn && d.getAttribute('name')) dnames[d.getAttribute('name')] = dn; });
+
+    // Tag placemarks so features can be matched to their DOM element.
+    var pms = dom.getElementsByTagName('Placemark'), ids = [];
+    for (var i = 0; i < pms.length; i++) { ids.push(pms[i].getAttribute('id')); pms[i].setAttribute('id', 'gc~' + i); }
+    var root = toGeoJSON.kmlWithFolders(dom);
+
+    var feats = [], hidden = {}, templates = [], fb = {}, icons = {}, seq = 0;
+    function balloonFor(pm, props) {
+      var own = null, inline = kids(pm, 'Style')[0], b = inline && kids(inline, 'BalloonStyle')[0];
+      if (b) own = kidText(b, 'text');
+      if (!own && props.styleUrl) { var u = props.styleUrl.replace(/^[^#]*/, ''); own = bal[maps[u] ? maps[u].replace(/^[^#]*/, '') : u] || null; }
+      return own;
+    }
+    function walk(node, out, parentHidden) {
+      node.children.forEach(function (c) {
+        if (c.type === 'folder') {
+          var f = { id: 'f' + (seq++).toString(36), n: c.meta.name || 'Folder', c: [] };
+          if (c.meta.visibility === '0') f.h = 1;
+          if (c.meta.open === '1') f.o = 1;
+          if (c.meta.description) f.d = c.meta.description;
+          out.push(f); walk(c, f.c, parentHidden || f.h);
+          return;
+        }
+        if (!c.geometry || (c.properties && c.properties['@geometry-type'] === 'groundoverlay')) return;
+        var m = /^gc~(\d+)$/.exec(c.id || ''), pm = m ? pms[+m[1]] : null;
+        if (m) { if (ids[+m[1]]) c.id = ids[+m[1]]; else delete c.id; }
+        var p = c.properties = c.properties || {};
+        if (p.description && typeof p.description === 'object') p.description = p.description.value || '';
+        if (p.visibility === false) hidden[feats.length] = 1;
+        delete p.visibility;
+        if (pm) { var t = balloonFor(pm, p); if (t) { var k = templates.indexOf(t); if (k < 0) { k = templates.length; templates.push(t); } fb[feats.length] = k; } }
+        if (p.icon && zipEntries) { var e = zipEntries[p.icon] || zipEntries[decodeURIComponent(p.icon)]; if (e) icons[p.icon] = e; }
+        out.push(feats.length); feats.push(c);
+      });
+    }
+    var tree = [];
+    walk(root, tree, false);
+    // A document holding a single folder: that folder is the layer itself, as Google Earth shows it.
+    var doc = dom.getElementsByTagName('Document')[0], docName = doc && kidText(doc, 'name');
+    while (tree.length === 1 && typeof tree[0] === 'object' && !tree[0].h) { docName = docName || tree[0].n; tree = tree[0].c; }
+    var fc = { type: 'FeatureCollection', features: feats };
+    var extra = { tree: tree, hiddenFeats: hidden, balloons: templates.length ? templates : null, featBalloon: templates.length ? fb : null,
+      displayNames: Object.keys(dnames).length ? dnames : null, iconBlobs: Object.keys(icons).length ? icons : null, kml: true };
+    if (feats.length) finish(r, docName || name, format, fc, 4326, true, files, warnings, extra);
     var gos = dom.getElementsByTagName('GroundOverlay');
-    for (var i = 0; i < gos.length; i++) {
+    for (i = 0; i < gos.length; i++) {
       var go = gos[i], q = function (t) { var e = go.getElementsByTagName(t)[0]; return e ? e.textContent.trim() : null; };
       var href = q('href'), n = +q('north'), s = +q('south'), e = +q('east'), w = +q('west');
       if (!href || !isFinite(n)) continue;
@@ -156,7 +215,6 @@
       r.overlays.push({ name: q('name') || 'Ground overlay', blob: entry, bounds: [[s, w], [n, e]], rotation: +(q('rotation') || 0), files: files });
     }
   }
-
   // ---------- GeoTIFF ----------
   var PROJ_KEYS = { 3072: 'ProjectedCSTypeGeoKey', 2048: 'GeographicTypeGeoKey' };
   function geotiff(r, name, buf, files, maxDim) {
@@ -308,5 +366,5 @@
     return { vectors: [{ name: p.name, format: p.format, geojson: project(p.raw, code), crs: code, chosen: true, warnings: p.warnings, files: p.files }] };
   }
 
-  global.Importers = { importFiles: importFiles, resolvePending: resolvePending, project: project, bounds: bounds, eachCoord: eachCoord };
+  global.Importers = { importFiles: importFiles, resolvePending: resolvePending, project: project, bounds: bounds, eachCoord: eachCoord, KML_INTERNAL: KML_INTERNAL };
 })(typeof window !== 'undefined' ? window : global);

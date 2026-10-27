@@ -71,22 +71,39 @@
     return '';
   }
 
+  var KML_SKIP = /^(name|description|stroke|stroke-opacity|stroke-width|fill|fill-opacity|marker-.*|styleUrl|styleHash|styleMapHash|icon|icon-.*|label-.*|visibility|open|coordinateProperties|@.*)$/;
+  function cdata(t) { return '<![CDATA[' + String(t).replace(/\]\]>/g, ']]]]><![CDATA[>') + ']]>'; }
+  function placemark(f, visible) {
+    var p = f.properties || {}, st = '<Style>';
+    if (p.stroke) st += '<LineStyle><color>' + kmlColor(p.stroke, p['stroke-opacity'] == null ? 1 : p['stroke-opacity']) + '</color><width>' + (p['stroke-width'] || 2) + '</width></LineStyle>';
+    if (p.fill) st += '<PolyStyle><color>' + kmlColor(p.fill, p['fill-opacity'] == null ? 0.3 : p['fill-opacity']) + '</color>' + (p.gc_type === 'stroke' ? '<outline>0</outline>' : '') + '</PolyStyle>';
+    else if (f.geometry && /Polygon/.test(f.geometry.type)) st += '<PolyStyle><fill>0</fill></PolyStyle>';
+    if (p.gc_type === 'text') st += '<IconStyle><scale>0</scale></IconStyle><LabelStyle><color>' + kmlColor(p.gc_color || '#ffffff', 1) + '</color></LabelStyle>';
+    var ic = p['icon-color'] || p['marker-color'];
+    if (ic || (p.icon && /^https?:/i.test(p.icon)) || p['icon-scale'] != null) st += '<IconStyle>' + (ic ? '<color>' + kmlColor(ic, p['icon-opacity'] == null ? 1 : p['icon-opacity']) + '</color>' : '') + (p['icon-scale'] != null ? '<scale>' + p['icon-scale'] + '</scale>' : '') + (p.icon && /^https?:/i.test(p.icon) ? '<Icon><href>' + esc(p.icon) + '</href></Icon>' : '') + '</IconStyle>';
+    st += '</Style>';
+    var desc = p.description == null ? '' : (typeof p.description === 'object' ? p.description.value || '' : String(p.description));
+    var keys = Object.keys(p).filter(function (k) { return !KML_SKIP.test(k) && p[k] != null; });
+    var ext = keys.length ? '<ExtendedData>' + keys.map(function (k) { return '<Data name="' + esc(k) + '"><value>' + esc(typeof p[k] === 'object' ? JSON.stringify(p[k]) : p[k]) + '</value></Data>'; }).join('') + '</ExtendedData>' : '';
+    return '<Placemark><name>' + esc(p.name || p.gc_tool || p.gc_type || 'Feature') + '</name>' + (visible === false ? '<visibility>0</visibility>' : '') + (desc ? '<description>' + cdata(desc) + '</description>' : '') + st + ext + kmlGeom(f.geometry) + '</Placemark>\n';
+  }
+  /** Imported GIS layers keep their KML folder tree, descriptions and visibility. */
+  function vectorKml(l) {
+    var feats = l.geojson.features || [], hf = l.hiddenFeats || {};
+    var tree = l.tree || feats.map(function (f, i) { return i; });
+    return (function walk(nodes) {
+      return nodes.map(function (nd) {
+        if (typeof nd === 'number') return feats[nd] && feats[nd].geometry ? placemark(feats[nd], !hf[nd]) : '';
+        return '<Folder><name>' + esc(nd.n) + '</name>' + (nd.h ? '<visibility>0</visibility>' : '') + (nd.d ? '<description>' + cdata(nd.d) + '</description>' : '') + '\n' + walk(nd.c) + '</Folder>\n';
+      }).join('');
+    })(tree);
+  }
+
   function kml(project, layerIds, outlines) {
     var body = '';
     project.layers.forEach(function (l) {
       if (layerIds.indexOf(l.id) < 0 || l.kind === 'raster') return;
-      var feats = collect(project, [l.id], outlines), pm = '';
-      feats.forEach(function (f) {
-        var p = f.properties || {}, st = '<Style>';
-        if (p.stroke) st += '<LineStyle><color>' + kmlColor(p.stroke, p['stroke-opacity'] == null ? 1 : p['stroke-opacity']) + '</color><width>' + (p['stroke-width'] || 2) + '</width></LineStyle>';
-        if (p.fill) st += '<PolyStyle><color>' + kmlColor(p.fill, p['fill-opacity'] == null ? 0.3 : p['fill-opacity']) + '</color>' + (p.gc_type === 'stroke' ? '<outline>0</outline>' : '') + '</PolyStyle>';
-        else if (f.geometry && /Polygon/.test(f.geometry.type)) st += '<PolyStyle><fill>0</fill></PolyStyle>';
-        if (p.gc_type === 'text') st += '<IconStyle><scale>0</scale></IconStyle><LabelStyle><color>' + kmlColor(p.gc_color || '#ffffff', 1) + '</color></LabelStyle>';
-        if (p['marker-color']) st += '<IconStyle><color>' + kmlColor(p['marker-color'], 1) + '</color></IconStyle>';
-        st += '</Style>';
-        var ext = '<ExtendedData>' + Object.keys(p).filter(function (k) { return !/^(stroke|fill|marker)/.test(k); }).map(function (k) { return '<Data name="' + esc(k) + '"><value>' + esc(typeof p[k] === 'object' ? JSON.stringify(p[k]) : p[k]) + '</value></Data>'; }).join('') + '</ExtendedData>';
-        pm += '<Placemark><name>' + esc(p.name || p.gc_tool || p.gc_type || 'Feature') + '</name>' + st + ext + kmlGeom(f.geometry) + '</Placemark>\n';
-      });
+      var pm = l.kind === 'vector' ? vectorKml(l) : collect(project, [l.id], outlines).map(function (f) { return placemark(f); }).join('');
       body += '<Folder><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility>\n' + pm + '</Folder>\n';
     });
     return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>' + esc(project.name) + '</name><description>Exported from GeoCanvas</description>\n' + body + '</Document></kml>\n';

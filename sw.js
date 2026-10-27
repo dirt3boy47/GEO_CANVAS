@@ -1,7 +1,7 @@
 /* GeoCanvas service worker: the app works offline after the first visit.
    App files: served from cache, refreshed in the background (new versions show on the next launch).
    Queensland imagery tiles: cache-first from "gc-tiles" (filled by viewing or by "Save this area for offline use"). */
-var SHELL = 'gc-shell-v2';
+var SHELL = 'gc-shell-v3';
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
   'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/panels.js', 'js/cloud.js'];

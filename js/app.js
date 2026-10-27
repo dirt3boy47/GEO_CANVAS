@@ -241,20 +241,93 @@
   }
   GC.featStyle = featStyle;
 
+  // ---------- Google Earth style places: folder tree, per-placemark visibility, icons ----------
+  /** Which features of a vector layer are shown (own eye and every enclosing folder's eye). */
+  GC.featVisibility = function (l) {
+    var n = (l.geojson.features || []).length, hf = l.hiddenFeats || {}, vis = new Array(n), i;
+    if (!l.tree) { for (i = 0; i < n; i++) vis[i] = !hf[i]; return vis; }
+    for (i = 0; i < n; i++) vis[i] = false;
+    (function walk(nodes, off) { nodes.forEach(function (nd) { if (typeof nd === 'number') vis[nd] = !off && !hf[nd]; else walk(nd.c, off || nd.h); }); })(l.tree, false);
+    return vis;
+  };
+  /** Tree of a vector layer: its KML folders, or a flat list of its features. */
+  GC.layerTree = function (l) {
+    if (l.tree) return l.tree;
+    var a = [], n = (l.geojson.features || []).length; for (var i = 0; i < n; i++) a.push(i); return a;
+  };
+  GC.featName = function (l, i) {
+    var f = l.geojson.features[i], p = (f && f.properties) || {}, t = p.name;
+    if (t == null || t === '') t = l.labelField ? p[l.labelField] : null;
+    if (t == null || t === '') t = (f && f.geometry ? ({ Point: 'Point', MultiPoint: 'Points', LineString: 'Line', MultiLineString: 'Lines', Polygon: 'Polygon', MultiPolygon: 'Polygons' }[f.geometry.type] || 'Feature') : 'Feature') + ' ' + (i + 1);
+    return String(t);
+  };
+  var openState = (function () { try { return JSON.parse(localStorage.getItem('gc.open') || '{}'); } catch (e) { return {}; } })();
+  /** Expanded folders are remembered per device (like the Places panel), not synced. */
+  GC.isOpen = function (key, dflt) { return key in openState ? !!openState[key] : !!dflt; };
+  GC.setOpen = function (key, v) { openState[key] = v ? 1 : 0; try { localStorage.setItem('gc.open', JSON.stringify(openState)); } catch (e) { /* ignore */ } };
+
+  var PADDLE = { red: '#e53935', blu: '#3b6ee8', grn: '#2e9e44', ylw: '#f4d03f', wht: '#ffffff', purple: '#8e44ad', orange: '#f39c12', pink: '#ec7fb6', ltblu: '#5dade2', blue: '#3b6ee8', green: '#2e9e44', yellow: '#f4d03f', white: '#ffffff' };
+  function shapeSvg(shape, c, s) {
+    var o = 'stroke="#222" stroke-opacity=".75" stroke-width="1.4"';
+    var body = {
+      pin: '<path d="M12 22.5s-7-6.8-7-11.9a7 7 0 0 1 14 0c0 5.1-7 11.9-7 11.9z" fill="' + c + '" ' + o + '/><circle cx="12" cy="10.4" r="2.6" fill="#fff" fill-opacity=".85"/>',
+      dot: '<circle cx="12" cy="12" r="8.5" fill="' + c + '" ' + o + '/><circle cx="9.5" cy="9.3" r="3" fill="#fff" fill-opacity=".45"/>',
+      square: '<rect x="4" y="4" width="16" height="16" rx="1.5" fill="' + c + '" ' + o + '/>',
+      star: '<path d="m12 2.6 2.9 6 6.6.8-4.9 4.6 1.3 6.5L12 17.3l-5.9 3.2 1.3-6.5-4.9-4.6 6.6-.8z" fill="' + c + '" ' + o + '/>',
+      triangle: '<path d="M12 3.5 21 20H3z" fill="' + c + '" ' + o + '/>',
+      diamond: '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z" fill="' + c + '" ' + o + '/>',
+      donut: '<circle cx="12" cy="12" r="7.5" fill="none" stroke="' + c + '" stroke-width="4.5"/><circle cx="12" cy="12" r="9.7" fill="none" stroke="#222" stroke-opacity=".5" stroke-width=".8"/>',
+      target: '<circle cx="12" cy="12" r="8" fill="none" stroke="' + c + '" stroke-width="2.6"/><circle cx="12" cy="12" r="3.2" fill="' + c + '"/>'
+    }[shape];
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" style="display:block;overflow:visible;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))">' + body + '</svg>';
+  }
+  /** Leaflet icon for a KML placemark: Google's standard icons drawn as tinted shapes; other images as they are. */
+  GC.placemarkIcon = function (l, f) {
+    var p = f.properties || {}, href = String(p.icon || ''), sc = p['icon-scale'] == null || !isFinite(+p['icon-scale']) ? 1 : +p['icon-scale'];
+    if (sc <= 0) return L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: [0, 0], html: '' });
+    var size = Math.max(12, Math.min(64, Math.round(26 * sc))), file = href.split(/[\/?#]/).filter(Boolean).pop() || '', lc = file.toLowerCase();
+    var tint = p['icon-color'] && !/^#?f{6}$/i.test(p['icon-color']) ? p['icon-color'] : null, named = null;
+    Object.keys(PADDLE).some(function (k) { if (lc.indexOf(k + '-') === 0 || lc.indexOf(k + '.') === 0 || lc.indexOf(k + '_') === 0) { named = PADDLE[k]; return true; } return false; });
+    var shape = !href ? 'pin' : /pushpin|paddle|pin\b|placemark\.png/.test(lc) ? 'pin' : /shaded_dot|placemark_circle|dot|circle|road_shield/.test(lc) ? 'dot' : /square/.test(lc) ? 'square' : /star/.test(lc) ? 'star' :
+      /triangle/.test(lc) ? 'triangle' : /diamond/.test(lc) ? 'diamond' : /donut/.test(lc) ? 'donut' : /target|cross-?hairs/.test(lc) ? 'target' : null;
+    var google = !href || /google\.com|gstatic|mapfiles|\/kml\/(shapes|paddle|pushpin|pal\d)/i.test(href);
+    if (shape && (google || !(l.icons && l.icons[href]))) {
+      var c = tint || named || (shape === 'pin' ? '#f4d03f' : (shape === 'dot' ? '#ffffff' : '#f4d03f'));
+      return L.divIcon({ className: 'gc-pm', iconSize: [size, size], iconAnchor: shape === 'pin' ? [size / 2, size * 0.94] : [size / 2, size / 2], html: shapeSvg(shape, c, size) });
+    }
+    var url = (l.icons && l.icons[href]) || (/^(https?:)?\/\//i.test(href) ? href.replace(/^(http:)?\/\//i, 'https://') : null);
+    if (!url) return L.divIcon({ className: 'gc-pm', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html: shapeSvg('dot', tint || '#ffffff', size) });
+    return L.divIcon({ className: 'gc-pm', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html: '<img src="' + GC.esc(url) + '" alt="" style="width:' + size + 'px;height:' + size + 'px;display:block;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))">' });
+  };
+
   /** (Re)creates the Leaflet layers of any layer. */
   GC.renderLayer = function (l) {
     var v = ensureView(l);
     v.group.clearLayers(); v.paths = {}; v.objs = {}; v.markers = {}; v.trackLines = {};
     if (l.kind === 'drawing') { GC.syncDrawing(l); return; }
     if (l.kind === 'vector') {
-      var n = (l.geojson.features || []).length, labels = l.labelField && n <= 600;
-      var gj = L.geoJSON(l.geojson, {
+      var vis = GC.featVisibility(l), shown = (l.geojson.features || []).filter(function (f, i) { return vis[i]; });
+      var n = shown.length, kml = !!l.tree, labels = l.labelField && n <= 600, npts = 0;
+      shown.forEach(function (f) { if (f.geometry && /Point/.test(f.geometry.type)) npts++; });
+      var icons = npts <= 1500;
+      var gj = L.geoJSON({ type: 'FeatureCollection', features: shown }, {
         pane: v.pn, renderer: v.renderer,
         interactive: false,
         style: function (f) { return featStyle(l, f, /Point/.test(f.geometry && f.geometry.type)); },
-        pointToLayer: function (f, ll) { return L.circleMarker(ll, Object.assign({ radius: 6, pane: v.pn, renderer: v.renderer, interactive: false }, featStyle(l, f, true))); },
+        pointToLayer: function (f, ll) {
+          if (icons && (kml || (f.properties && f.properties.icon))) return L.marker(ll, { icon: GC.placemarkIcon(l, f), pane: v.pn, interactive: false, keyboard: false });
+          return L.circleMarker(ll, Object.assign({ radius: 6, pane: v.pn, renderer: v.renderer, interactive: false }, featStyle(l, f, true)));
+        },
         onEachFeature: function (f, lay) {
-          if (labels && f.properties && f.properties[l.labelField] != null && f.properties[l.labelField] !== '') lay.bindTooltip(GC.esc(f.properties[l.labelField]), { permanent: true, direction: 'center', className: 'gc-label', pane: 'tooltipPane' });
+          var p = f.properties || {}, pt = /Point/.test(f.geometry && f.geometry.type);
+          if (kml) { // Google Earth: placemark names next to point icons
+            var t = p.name != null && p.name !== '' ? p.name : (l.labelField ? p[l.labelField] : null), ls = p['label-scale'] == null ? 1 : +p['label-scale'];
+            if (pt && icons && t != null && t !== '' && ls > 0 && lay.options.icon) {
+              var sz = lay.options.icon.options.iconSize || [0, 0], an = lay.options.icon.options.iconAnchor || [0, 0];
+              lay.bindTooltip('<span style="' + (p['label-color'] ? 'color:' + p['label-color'] + ';' : '') + 'font-size:' + Math.round(12.5 * Math.min(2, ls)) + 'px">' + GC.esc(t) + '</span>',
+                { permanent: true, direction: 'right', offset: [sz[0] - an[0] - 4, sz[1] / 2 - an[1]], className: 'gc-plabel', pane: 'tooltipPane' });
+            }
+          } else if (labels && p[l.labelField] != null && p[l.labelField] !== '') lay.bindTooltip(GC.esc(p[l.labelField]), { permanent: true, direction: 'center', className: 'gc-label', pane: 'tooltipPane' });
         }
       });
       v.group.addLayer(gj);
@@ -409,34 +482,140 @@
   GC.refreshLayers = function (countsOnly) {
     var p = GC.project; if (!p) return;
     var list = $('layer-list');
+    if (countsOnly) {
+      p.layers.forEach(function (l) { var el = list.querySelector('.layer[data-id="' + l.id + '"] > .lrow .lsub'); if (el) el.textContent = layerSub(l); });
+      return;
+    }
     list.innerHTML = p.layers.slice().reverse().map(function (l) {
       var cls = 'layer' + (l.id === p.activeLayer ? ' active' : '') + (l.visible ? '' : ' hidden-layer');
       var sw = l.kind === 'vector' ? ((l.style && l.style.color) || '#ff9800') : (l.color || '#888');
-      return '<li class="' + cls + '" data-id="' + l.id + '"><span class="sw" style="background:' + sw + '"></span>' +
-        '<div class="ltext"><div class="lname">' + GC.esc(l.name) + '</div><div class="lsub">' + GC.esc(GC.kindLabel(l) + ' · ' + GC.layerCount(l)) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : '') + '</div></div>' +
-        '<button class="ib" data-act="vis" title="' + (l.visible ? 'Hide' : 'Show') + '">' + ICON(l.visible ? 'eye' : 'eyeoff') + '</button>' +
-        '<button class="ib' + (l.locked ? ' locked' : '') + '" data-act="lock" title="' + (l.locked ? 'Unlock' : 'Lock') + '">' + ICON(l.locked ? 'lock' : 'unlock') + '</button>' +
-        '<button class="ib" data-act="more" title="Layer options">' + ICON('more') + '</button></li>';
+      var tree = l.kind === 'vector', open = tree && GC.isOpen(l.id, false);
+      var h = '<li class="' + cls + '" data-id="' + l.id + '"><div class="lrow"><span class="grip" title="Drag to reorder">' + ICON('grip') + '</span>' +
+        (tree ? '<button class="tw' + (open ? ' open' : '') + '" data-act="tw" title="' + (open ? 'Collapse' : 'Expand') + '">' + ICON('caret') + '</button>' : '<span class="tw-sp"></span>') +
+        '<span class="sw" style="background:' + sw + '"></span>' +
+        '<div class="ltext"><div class="lname">' + GC.esc(l.name) + '</div><div class="lsub">' + GC.esc(layerSub(l)) + '</div></div>' +
+        (l.kind === 'drawing' ? '<button class="ib' + (l.locked ? ' locked' : '') + '" data-act="lock" title="' + (l.locked ? 'Unlock' : 'Lock') + '">' + ICON(l.locked ? 'lock' : 'unlock') + '</button>' : '') +
+        '<button class="ib" data-act="more" title="Layer options">' + ICON('more') + '</button>' +
+        '<button class="ib eye" data-act="vis" title="' + (l.visible ? 'Hide' : 'Show') + '">' + ICON(l.visible ? 'eye' : 'eyeoff') + '</button></div>';
+      if (open) { var rows = []; treeRows(l, GC.layerTree(l), 0, !l.visible, rows, ''); h += '<ul class="tree">' + rows.join('') + '</ul>'; }
+      return h + '</li>';
     }).join('');
     $('layer-count').textContent = p.layers.length + (p.layers.length === 1 ? ' layer' : ' layers');
-    if (countsOnly) return;
     var dl = GC.drawingLayers(), opts = dl.slice().reverse().map(function (l) { return '<option value="' + l.id + '">' + GC.esc(l.name) + (l.locked ? ' (locked)' : '') + '</option>'; }).join('');
     $('active-layer').innerHTML = opts + '<option value="__new">+ New layer…</option>';
     $('active-layer').value = p.activeLayer || '__new';
     $('sel-layer').innerHTML = '<option value="">Move to layer…</option>' + opts;
   };
+  function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : ''); }
+  var shownLimit = {}; // "layer:folder" → rows shown in very large folders
+  var GEOM_ICON = { Point: 'gpt', MultiPoint: 'gpt', LineString: 'gline', MultiLineString: 'gline', Polygon: 'gpoly', MultiPolygon: 'gpoly' };
+  function treeRows(l, nodes, depth, off, out, key) {
+    var hf = l.hiddenFeats || {}, lim = shownLimit[l.id + ':' + key] || 250, sel = GC.selFeat && GC.selFeat.lid === l.id ? GC.selFeat.idx : -1;
+    nodes.slice(0, lim).forEach(function (nd) {
+      if (typeof nd === 'number') {
+        var f = l.geojson.features[nd], g = f && f.geometry, gt = g && (g.type === 'GeometryCollection' ? (g.geometries[0] || {}).type : g.type), st = f ? featStyle(l, f, gt === 'Point' || gt === 'MultiPoint') : {};
+        var col = gt === 'Point' || gt === 'MultiPoint' ? (f.properties && f.properties['icon-color']) || st.fillColor : st.color;
+        out.push('<li class="tn' + (off || hf[nd] ? ' off' : '') + (nd === sel ? ' sel' : '') + '" data-n="p' + nd + '" style="--d:' + depth + '"><span class="tw-sp"></span>' +
+          '<svg class="ti" style="color:' + GC.esc(col || '#888') + '"><use xlink:href="#i-' + (GEOM_ICON[gt] || 'gpt') + '"/></svg>' +
+          '<span class="tname" data-act="go">' + GC.esc(GC.featName(l, nd)) + '</span>' +
+          '<button class="ib" data-act="tvis" title="' + (hf[nd] ? 'Show' : 'Hide') + '">' + ICON(hf[nd] ? 'eyeoff' : 'eye') + '</button></li>');
+      } else {
+        var k = 'f' + nd.id, open = GC.isOpen(l.id + ':' + nd.id, nd.o);
+        out.push('<li class="tn folder' + (off || nd.h ? ' off' : '') + '" data-n="' + k + '" style="--d:' + depth + '">' +
+          '<button class="tw' + (open ? ' open' : '') + '" data-act="tw">' + ICON('caret') + '</button>' +
+          '<svg class="ti"><use xlink:href="#i-' + (open ? 'folder-open' : 'folder') + '"/></svg>' +
+          '<span class="tname" data-act="fold">' + GC.esc(nd.n) + '</span>' +
+          '<button class="ib" data-act="tvis" title="' + (nd.h ? 'Show' : 'Hide') + '">' + ICON(nd.h ? 'eyeoff' : 'eye') + '</button></li>');
+        if (open) treeRows(l, nd.c, depth + 1, off || nd.h, out, nd.id);
+      }
+    });
+    if (nodes.length > lim) out.push('<li class="tn more" data-n="m' + key + '" style="--d:' + depth + '"><span class="tw-sp"></span><span class="tname" data-act="more">Show ' + Math.min(500, nodes.length - lim) + ' more of ' + (nodes.length - lim) + '…</span></li>');
+  }
+  /** Path of folders from the top of the tree down to a node (folder id or feature index). */
+  function findPath(nodes, match, path) {
+    for (var i = 0; i < nodes.length; i++) {
+      var nd = nodes[i];
+      if (match(nd)) return path;
+      if (typeof nd === 'object') { var r = findPath(nd.c, match, path.concat([nd])); if (r) return r; }
+    }
+    return null;
+  }
+  function eachFeat(nd, fn) { if (typeof nd === 'number') fn(nd); else nd.c.forEach(function (x) { eachFeat(x, fn); }); }
+  GC.folderBounds = function (l, nd) {
+    var b = null;
+    eachFeat(nd, function (i) { var f = l.geojson.features[i]; if (!f || !f.geometry) return; var bb = global.Importers.bounds({ type: 'FeatureCollection', features: [f] }); if (!isFinite(bb[0])) return; if (!b) b = L.latLngBounds([bb[1], bb[0]], [bb[3], bb[2]]); else b.extend([[bb[1], bb[0]], [bb[3], bb[2]]]); });
+    return b;
+  };
+  function zoomBounds(b) { if (!b) return; if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 17)); else map.fitBounds(b, { padding: [60, 60], maxZoom: 19 }); }
+  /** Show/hide like Google Earth: a folder takes all its contents with it; showing an item also shows the folders around it. */
+  function setNodeVisible(l, n, show) {
+    l.hiddenFeats = l.hiddenFeats || {};
+    var tree = GC.layerTree(l), path, nd;
+    if (n.charAt(0) === 'p') { var i = +n.slice(1); if (show) delete l.hiddenFeats[i]; else l.hiddenFeats[i] = 1; path = l.tree ? findPath(tree, function (x) { return x === i; }, []) : []; }
+    else {
+      var id = n.slice(1); path = findPath(tree, function (x) { return typeof x === 'object' && x.id === id; }, []);
+      nd = path && (path.length ? path[path.length - 1].c : tree).filter(function (x) { return typeof x === 'object' && x.id === id; })[0];
+      if (!nd) return;
+      (function all(x) { if (typeof x === 'number') { if (show) delete l.hiddenFeats[x]; else l.hiddenFeats[x] = 1; } else { if (show) delete x.h; else x.h = 1; x.c.forEach(all); } })(nd);
+    }
+    if (show) { (path || []).forEach(function (x) { delete x.h; }); if (!l.visible) { l.visible = true; GC.applyLayerState(); } }
+    GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers();
+  }
   var lastTap = { id: null, t: 0 };
+  function doubleTap(id) { var now = Date.now(), d = lastTap.id === id && now - lastTap.t < 400; lastTap = d ? { id: null, t: 0 } : { id: id, t: now }; return d; }
   $('layer-list').addEventListener('click', function (e) {
     var li = e.target.closest('.layer'); if (!li) return;
     var l = GC.layerById(li.getAttribute('data-id')); if (!l) return;
-    var btn = e.target.closest('button'), act = btn && btn.getAttribute('data-act');
+    var btn = e.target.closest('[data-act]'), act = btn && btn.getAttribute('data-act'), tn = e.target.closest('.tn');
+    if (tn) {
+      var n = tn.getAttribute('data-n');
+      if (n.charAt(0) === 'm') { var key = l.id + ':' + n.slice(1); shownLimit[key] = (shownLimit[key] || 250) + 500; GC.refreshLayers(); return; }
+      if (n.charAt(0) === 'p') {
+        if (act === 'tvis') setNodeVisible(l, n, !!(l.hiddenFeats || {})[+n.slice(1)]);
+        else if (GC.showFeature) GC.showFeature(l, +n.slice(1));
+        return;
+      }
+      var fid = n.slice(1), fnd = findPath(GC.layerTree(l), function (x) { return typeof x === 'object' && x.id === fid; }, []);
+      var folder = fnd && (fnd.length ? fnd[fnd.length - 1].c : GC.layerTree(l)).filter(function (x) { return typeof x === 'object' && x.id === fid; })[0];
+      if (!folder) return;
+      if (act === 'tvis') { setNodeVisible(l, n, !!folder.h); return; }
+      if (act === 'fold' && doubleTap(l.id + ':' + fid)) { zoomBounds(GC.folderBounds(l, folder)); return; }
+      GC.setOpen(l.id + ':' + fid, !GC.isOpen(l.id + ':' + fid, folder.o)); GC.refreshLayers();
+      return;
+    }
+    if (act === 'tw') { GC.setOpen(l.id, !GC.isOpen(l.id, false)); GC.refreshLayers(); return; }
     if (act === 'vis') { l.visible = !l.visible; GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(); return; }
     if (act === 'lock') { l.locked = !l.locked; GC.markDirty(l.id); GC.refreshLayers(); if (l.locked && GC.clearSelection) GC.clearSelection(); return; }
     if (act === 'more') { GC.layerOptions(l); return; }
-    var now = Date.now();
-    if (lastTap.id === l.id && now - lastTap.t < 400) { GC.zoomToLayer(l); lastTap.id = null; return; }
-    lastTap = { id: l.id, t: now };
+    if (e.target.closest('.grip')) return;
+    if (doubleTap(l.id)) { GC.zoomToLayer(l); return; }
     if (l.kind === 'drawing') { GC.project.activeLayer = l.id; GC.markDirty(); GC.refreshLayers(); }
+    else if (l.kind === 'vector' && e.target.closest('.ltext')) { GC.setOpen(l.id, !GC.isOpen(l.id, false)); GC.refreshLayers(); }
+  });
+  // Drag the ⠿ handle to reorder layers (the list shows the top layer first).
+  $('layer-list').addEventListener('pointerdown', function (e) {
+    var grip = e.target.closest('.grip'); if (!grip) return;
+    e.preventDefault();
+    var li = grip.closest('.layer'), list = $('layer-list'), items = Array.prototype.slice.call(list.children), from = items.indexOf(li);
+    var tops = items.map(function (x) { var r = x.getBoundingClientRect(); return r.top + r.height / 2; }), y0 = e.clientY, to = from;
+    li.classList.add('dragging');
+    try { grip.setPointerCapture(e.pointerId); } catch (er) { /* old Safari */ }
+    var move = function (ev) {
+      var dy = ev.clientY - y0, c = tops[from] + dy;
+      li.style.transform = 'translateY(' + dy + 'px)';
+      to = 0; for (var i = 0; i < tops.length; i++) if (i !== from && tops[i] < c) to++; // final position = rows that end up above it
+      items.forEach(function (x, i) { x.classList.toggle('drop-above', i === to && to < from); x.classList.toggle('drop-below', i === to && to > from); });
+    };
+    var up = function () {
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+      li.classList.remove('dragging'); li.style.transform = '';
+      items.forEach(function (x) { x.classList.remove('drop-above', 'drop-below'); });
+      if (to === from) return;
+      var ls = GC.project.layers, n = ls.length, l = ls.splice(n - 1 - from, 1)[0];
+      ls.splice(n - 1 - to, 0, l);
+      GC.applyLayerState(); GC.markDirty(); GC.refreshLayers();
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
   });
   $('btn-add-layer').onclick = function () {
     GC.prompt('New annotation layer', 'Layer ' + (GC.drawingLayers().length + 1), 'Name', 'Create').then(function (name) {

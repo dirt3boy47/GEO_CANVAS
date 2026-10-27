@@ -26,8 +26,17 @@
   function addVector(v) {
     var l = { id: Ink.uid(), name: v.name, kind: 'vector', visible: true, opacity: 1, locked: true, geojson: v.geojson, crs: v.crs, assumed: !!v.assumed, format: v.format,
       warnings: v.warnings || [], style: { color: GC.nextLayerColor(), width: 2, fillOpacity: 0.2, useFileStyle: true }, labelField: v.geojson.features.length <= 300 ? guessLabel(v.geojson) : null, created: Date.now() };
-    GC.insertLayer(l);
-    return storeSources(l, v.files).then(function () { return l; });
+    if (v.kml) { // Google Earth structure: folder tree, per-placemark visibility, balloons
+      l.tree = v.tree; l.hiddenFeats = v.hiddenFeats || {};
+      if (v.balloons) { l.balloons = v.balloons; l.featBalloon = v.featBalloon; }
+      if (v.displayNames) l.displayNames = v.displayNames;
+      if (v.geojson.features.some(function (f) { return f.properties && f.properties.name; })) l.labelField = 'name';
+    }
+    var icons = v.iconBlobs ? Object.keys(v.iconBlobs) : [];
+    return Promise.all(icons.map(function (h) { return blobToDataURL(v.iconBlobs[h]).then(function (u) { (l.icons = l.icons || {})[h] = u; }); })).then(function () {
+      GC.insertLayer(l);
+      return storeSources(l, v.files);
+    }).then(function () { return l; });
   }
   function addRaster(r) {
     var l = { id: Ink.uid(), name: r.name, kind: 'raster', visible: true, opacity: 0.85, locked: true, dataURL: r.dataURL, bounds: r.bounds, crs: r.crs, format: r.format || 'GeoTIFF', warnings: r.warnings || [], created: Date.now() };
@@ -145,7 +154,7 @@
     $('inspector').hidden = false;
     $('gps-panel').hidden = true;
   }
-  GC.closeInspector = function () { $('inspector').hidden = true; if (hl) { map.removeLayer(hl); hl = null; } };
+  GC.closeInspector = function () { $('inspector').hidden = true; if (balloon) map.closePopup(balloon); if (hl) { map.removeLayer(hl); hl = null; } };
   $('insp-close').onclick = GC.closeInspector;
   var hl = null;
   function highlight(geojson) {
@@ -172,9 +181,17 @@
     for (var i = 0; i < ls.length; i++) {
       var l = ls[i], v = GC.views[l.id]; if (!l.visible || !v) continue;
       if (l.kind === 'drawing') { var el = GC.hitItem(l, cp); if (el && el.type !== 'marker') { GC.inspectItem(l, el); return; } continue; }
-      var hit = null;
-      var walk = function (x) { if (x.eachLayer) { x.eachLayer(walk); return; } if (x._containsPoint && (x._parts || x._point)) { try { if (x._containsPoint(lp)) hit = x; } catch (er) { /* not projected */ } } };
+      var hit = null, hitPt = null; // a placemark icon wins over the lines and areas under it
+      var walk = function (x) {
+        if (x.eachLayer) { x.eachLayer(walk); return; }
+        if (x instanceof L.Marker && x.feature) { // placemark icons: hit their drawn box
+          var io = (x.options.icon && x.options.icon.options) || {}, sz = io.iconSize || [20, 20], an = io.iconAnchor || [sz[0] / 2, sz[1] / 2], mp = map.latLngToLayerPoint(x.getLatLng());
+          if (Math.abs(lp.x - (mp.x - an[0] + sz[0] / 2)) <= sz[0] / 2 + 7 && Math.abs(lp.y - (mp.y - an[1] + sz[1] / 2)) <= sz[1] / 2 + 7) hitPt = x;
+          return;
+        }
+        if (x._containsPoint && (x._parts || x._point)) { try { if (x._containsPoint(lp)) hit = x; } catch (er) { /* not projected */ } } };
       v.group.eachLayer(walk);
+      hit = hitPt || hit;
       if (hit) {
         if (hit.feature) GC.inspectFeature(l, hit.feature, e.latlng);
         else if (hit._gcTrack) GC.inspectTrack(l, hit._gcTrack);
@@ -185,16 +202,139 @@
     }
     GC.closeInspector();
   };
-  GC.inspectFeature = function (l, f, ll) {
-    var rows = measure(f.geometry);
-    Object.keys(f.properties || {}).forEach(function (k) {
-      if (/^(stroke|fill|marker-|styleUrl|styleHash|styleMapHash|@)/.test(k)) return;
-      var v = f.properties[k]; if (v == null || v === '') return;
-      rows.push([k, typeof v === 'object' ? JSON.stringify(v) : String(v)]);
+  // ---------- Google Earth style balloons ----------
+  var balloon = null, kmzCache = {};
+  function descText(d) { return d == null ? '' : (typeof d === 'object' ? (d.value || '') : String(d)); }
+  function looksHtml(t) { return /<\/?[a-z][\s\S]*?>|&[a-z#0-9]+;/i.test(t); }
+  function linkify(t) { return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+  var INTERNAL = /^(stroke|stroke-opacity|stroke-width|fill|fill-opacity|marker-.*|styleUrl|styleHash|styleMapHash|icon|icon-.*|label-.*|visibility|open|coordinateProperties|@.*)$/;
+  /** Attribute rows of a feature: KML ExtendedData, or every attribute of a shapefile/GeoJSON feature. */
+  function dataRows(l, p) {
+    var dn = l.displayNames || {}, kml = !!l.tree;
+    return Object.keys(p).filter(function (k) {
+      if (INTERNAL.test(k) || (kml && (k === 'name' || k === 'description' || k === 'address' || k === 'phoneNumber' || k === 'timespan' || k === 'timestamp'))) return false;
+      var v = p[k]; return v != null && v !== '';
+    }).map(function (k) { var v = p[k]; return [dn[k] || k, typeof v === 'object' ? JSON.stringify(v) : String(v)]; });
+  }
+  /** Google Earth BalloonStyle text: $[name], $[description], $[field], $[field/displayName], $[Schema/field]. */
+  function expandBalloon(tpl, l, p, name) {
+    var dn = l.displayNames || {};
+    return tpl.replace(/\$\[([^\]]+)\]/g, function (m, key) {
+      if (key === 'name') return esc(name);
+      if (key === 'description') return descText(p.description);
+      if (key === 'geDirections') return '';
+      var parts = key.split('/'), disp = parts[parts.length - 1] === 'displayName';
+      if (disp) parts.pop();
+      var field = parts[parts.length - 1];
+      if (disp) return esc(dn[field] || field);
+      var v = p[field] != null ? p[field] : p[key];
+      return v == null ? '' : String(v);
     });
-    if (f.geometry && f.geometry.type !== 'Point' && ll) rows = rows.concat([['Tapped at', ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6)], ['MGA2020', Geo.fmt([ll.lng, ll.lat], 'mga')]]);
+  }
+  /** Images inside a KMZ (e.g. <img src="files/photo.jpg">) are read from the stored KMZ. */
+  function resolveKmz(l, html) {
+    if (!/(src|background)\s*=\s*["']?(?!https?:|data:|\/\/|#)[^"'\s>]+/i.test(html) || !l.hasSources || !global.JSZip) return Promise.resolve(html);
+    var zipP = kmzCache[l.id] || (kmzCache[l.id] = Store.getFiles(GC.project.id, l.id).then(function (fs) {
+      var k = fs.filter(function (f) { return /\.kmz$/i.test(f.name); })[0]; return k ? JSZip.loadAsync(k.data) : null;
+    }));
+    return zipP.then(function (zip) {
+      if (!zip) return html;
+      var doc = new DOMParser().parseFromString(html, 'text/html'), jobs = [];
+      Array.prototype.forEach.call(doc.querySelectorAll('[src],[background]'), function (el) {
+        var attr = el.hasAttribute('src') ? 'src' : 'background', u = el.getAttribute(attr);
+        if (/^(https?:|data:|\/\/|#)/i.test(u)) return;
+        var e = zip.file(u) || zip.file(decodeURIComponent(u)) || zip.file(u.replace(/^\.\//, ''));
+        if (!e) return;
+        var mime = /\.png$/i.test(u) ? 'image/png' : /\.gif$/i.test(u) ? 'image/gif' : /\.svg$/i.test(u) ? 'image/svg+xml' : 'image/jpeg';
+        jobs.push(e.async('base64').then(function (b) { el.setAttribute(attr, 'data:' + mime + ';base64,' + b); }));
+      });
+      return Promise.all(jobs).then(function () { return doc.head.innerHTML + doc.body.innerHTML; });
+    }).catch(function () { return html; });
+  }
+  /** HTML from the file is shown in a sandboxed frame: it looks as authored but cannot run scripts or reach the app. */
+  function htmlFrame(html, maxW, onSize) {
+    var fr = document.createElement('iframe');
+    fr.className = 'gb-frame';
+    fr.setAttribute('sandbox', 'allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+    fr.style.width = maxW + 'px'; fr.style.height = '24px';
+    var fit = function () {
+      try {
+        var d = fr.contentDocument, r = d && d.getElementById('gc-root'); if (!r) return;
+        var w = Math.ceil(Math.max(r.getBoundingClientRect().width, r.scrollWidth)) + 2;
+        fr.style.width = Math.max(140, Math.min(maxW, w)) + 'px';
+        fr.style.height = Math.ceil(Math.max(r.getBoundingClientRect().height + (w > maxW ? 14 : 0), d.documentElement.scrollHeight - 2)) + 'px'; // + room for a sideways scrollbar
+        onSize();
+      } catch (e) { /* not readable */ }
+    };
+    fr.onload = function () {
+      fit();
+      try { Array.prototype.forEach.call(fr.contentDocument.images, function (im) { if (!im.complete) im.addEventListener('load', fit); }); } catch (e) { /* ignore */ }
+    };
+    fr.srcdoc = '<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;padding:0;background:#fff}' +
+      'body{font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#202124;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}' +
+      '#gc-root{display:inline-block;max-width:100%;vertical-align:top}img{max-width:100%;height:auto}a{color:#1a73e8}</style></head>' +
+      '<body><div id="gc-root">' + html + '</div></body></html>';
+    return fr;
+  }
+  function anchorOf(f) {
+    var g = f.geometry; if (!g) return null;
+    if (g.type === 'GeometryCollection') g = g.geometries[0];
+    if (!g) return null;
+    if (g.type === 'Point') return L.latLng(g.coordinates[1], g.coordinates[0]);
+    if (g.type === 'MultiPoint') return L.latLng(g.coordinates[0][1], g.coordinates[0][0]);
+    var line = g.type === 'LineString' ? g.coordinates : g.type === 'MultiLineString' ? g.coordinates[0] : null;
+    if (line && line.length) { // halfway along the line
+      var half = Geo.pathLength(line) / 2, run = 0;
+      for (var i = 1; i < line.length; i++) { var d = Geo.pathLength([line[i - 1], line[i]]); if (run + d >= half) { var t = d ? (half - run) / d : 0; return L.latLng(line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t, line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t); } run += d; }
+      return L.latLng(line[0][1], line[0][0]);
+    }
+    var bb = Importers.bounds({ type: 'FeatureCollection', features: [f] });
+    return isFinite(bb[0]) ? L.latLng((bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2) : null;
+  }
+  function footer(l, f, ll) {
+    var g = f.geometry, bits = [];
+    measure(g && g.type === 'GeometryCollection' ? g.geometries[0] : g).forEach(function (r) { if (r[0] !== 'Position') bits.push(r[0] === 'MGA2020' ? r[1] : r[0] + ' ' + r[1]); });
+    if (g && g.type === 'Point') bits.unshift(g.coordinates[1].toFixed(6) + ', ' + g.coordinates[0].toFixed(6));
+    else if (ll && g) bits.push('Tapped at ' + Geo.fmt([ll.lng, ll.lat], 'mga'));
+    return '<div class="gb-foot">' + esc(bits.join(' · ')) + (bits.length ? '<br>' : '') + esc(l.name) + '<br><button data-a="zoom">Zoom to</button><button data-a="hide">Hide</button></div>';
+  }
+  /** Opens the balloon of a vector feature, as Google Earth does when a placemark is clicked. */
+  function openBalloon(l, f, ll, tapped) {
+    GC.closeInspector();
+    var idx = l.geojson.features.indexOf(f), p = f.properties || {}, name = idx >= 0 ? GC.featName(l, idx) : (p.name || 'Feature');
+    var tplI = l.featBalloon && idx >= 0 ? l.featBalloon[idx] : null, tpl = tplI != null && l.balloons ? l.balloons[tplI] : null;
+    var desc = descText(p.description), rows = dataRows(l, p), sz = map.getSize(), side = document.body.classList.contains('no-sidebar') ? 0 : 350;
+    var maxW = Math.max(220, Math.min(560, sz.x - side - 110)); // room beside the sidebar
+    var root = document.createElement('div'), html = tpl ? expandBalloon(tpl, l, p, name) : (desc && looksHtml(desc) ? desc : null);
+    var pop = L.popup({ className: 'gc-balloon', maxWidth: maxW + 40, minWidth: 180, maxHeight: Math.round(sz.y * 0.62), autoPanPaddingTopLeft: L.point(side + 20, 140), autoPanPaddingBottomRight: L.point(30, 70) });
+    var refit = function () { if (!map.hasLayer(pop)) return; pop._updateLayout(); pop._updatePosition(); pop._adjustPan(); };
+    var table = '<table class="gb-data">' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + linkify(r[1]) + '</td></tr>'; }).join('') + '</table>';
+    // No separate heading when the description already opens with the name (it would show twice).
+    var opensWithName = html && new DOMParser().parseFromString(html, 'text/html').body.textContent.trim().indexOf(name) === 0;
+    root.innerHTML = (tpl || opensWithName ? '' : '<div class="gb-title">' + esc(name) + '</div>') + '<div class="gb-html"></div>' +
+      (!tpl && rows.length ? (html ? '<details class="gb-more"><summary>Data (' + rows.length + ')</summary>' + table + '</details>' : table) : '') +
+      (!html && desc ? '<div class="gb-text' + (rows.length ? ' note' : '') + '">' + linkify(desc) + '</div>' : '') +
+      footer(l, f, tapped ? ll : null);
+    if (html) resolveKmz(l, html).then(function (h) { root.querySelector('.gb-html').appendChild(htmlFrame(h, maxW, refit)); });
+    var det = root.querySelector('details'); if (det) det.addEventListener('toggle', refit);
+    root.querySelector('[data-a=zoom]').onclick = function () { var b = GC.folderBounds(l, idx); if (b) { if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 18)); else map.fitBounds(b, { padding: [80, 80], maxZoom: 19 }); } };
+    root.querySelector('[data-a=hide]').onclick = function () { map.closePopup(pop); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); };
     highlight(f);
-    openInspector((f.properties && (f.properties[l.labelField] || f.properties.name || f.properties.NAME)) || 'Feature', l.name + ' · ' + (f.geometry ? f.geometry.type : ''), rows);
+    GC.selFeat = { lid: l.id, idx: idx };
+    Array.prototype.forEach.call(document.querySelectorAll('#layer-list .tn.sel'), function (x) { x.classList.remove('sel'); });
+    var row = document.querySelector('#layer-list .layer[data-id="' + l.id + '"] [data-n="p' + idx + '"]'); if (row) row.classList.add('sel');
+    pop.on('remove', function () { if (balloon === pop) { balloon = null; GC.selFeat = null; if (hl) { map.removeLayer(hl); hl = null; } if (row) row.classList.remove('sel'); } });
+    balloon = pop;
+    pop.setLatLng(ll || anchorOf(f) || map.getCenter()).setContent(root).openOn(map);
+  }
+  GC.inspectFeature = function (l, f, ll) { openBalloon(l, f, ll, true); };
+  /** From the Places tree: fly to a placemark and open its balloon. */
+  GC.showFeature = function (l, idx) {
+    var f = l.geojson.features[idx]; if (!f) return;
+    if (l.hiddenFeats && l.hiddenFeats[idx]) { delete l.hiddenFeats[idx]; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); }
+    var b = GC.folderBounds(l, idx), a = anchorOf(f);
+    if (b) { if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 17), { animate: false }); else if (!map.getBounds().contains(b)) map.fitBounds(b, { padding: [80, 80], maxZoom: 18, animate: false }); }
+    openBalloon(l, f, a);
   };
   GC.inspectItem = function (l, el) {
     var rows = [['Layer', l.name], ['Created', GC.fmtTime(el.created || Date.now())]], actions = [], title;

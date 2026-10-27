@@ -28,6 +28,12 @@
     <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-caret" viewBox="0 0 24 24"><path d="M9 6l7 6-7 6z" fill="currentColor"/></symbol>
+    <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1M3 18l2.6-7a1.6 1.6 0 0 1 1.5-1H21a1 1 0 0 1 .95 1.3L19.7 17.6a1.8 1.8 0 0 1-1.7 1.4H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gpt" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z" fill="currentColor"/><circle cx="12" cy="10" r="2.4" fill="#fff"/></symbol>
+    <symbol id="i-gline" viewBox="0 0 24 24"><path d="M4 18 9.5 9l5 6L20 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gpoly" viewBox="0 0 24 24"><path d="M5 6.5 15 4l5 8-6 8-9-3z" fill="currentColor" fill-opacity=".35" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></g></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
     <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
@@ -91,7 +97,7 @@
   <div id="tab-layers" class="tab">
     <div class="tab-head"><span id="layer-count"></span><button class="link" id="btn-add-layer"><svg><use xlink:href="#i-plus"/></svg>Annotation layer</button></div>
     <ul id="layer-list"></ul>
-    <p class="hint">Annotation layers draw above imported GIS layers. Tap a layer to draw on it; double-tap to zoom to it.</p>
+    <p class="hint">Drag ⠿ to reorder. ▸ opens folders, the eye shows or hides. Tap a placemark to fly to it and see its details; double-tap a layer or folder to zoom to it.</p>
   </div>
   <div id="tab-project" class="tab" hidden>
     <label class="field">Project name<input id="proj-name" type="text"></label>
