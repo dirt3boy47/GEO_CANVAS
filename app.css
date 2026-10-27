@@ -50,6 +50,9 @@ body.draw #crosshair { display: none; }
 #project-name { font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #save-status { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 #save-status.err { color: var(--danger); font-weight: 600; }
+#cloud-status { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+#cloud-status.err { color: var(--danger); font-weight: 600; }
+.cloud-tag { font-size: 11px; font-weight: 700; color: var(--accent); margin-left: 6px; }
 .seg { display: inline-flex; background: var(--chip); border-radius: 12px; padding: 3px; gap: 2px; margin-left: 6px; }
 .seg button { border: 0; background: transparent; border-radius: 9px; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--muted); }
 .seg button svg { width: 18px; height: 18px; }

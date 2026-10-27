@@ -198,6 +198,8 @@
 
   var fingers = {}, pinch = null;
   function fingerCount() { return Object.keys(fingers).length; }
+  /** True while a pen/finger gesture or pinch is in progress (cloud sync waits for it). */
+  GC.gestureActive = function () { return !!g || !!pinch; };
 
   function onDown(e) {
     if (GC.mode !== 'draw' || !inMap(e)) return;

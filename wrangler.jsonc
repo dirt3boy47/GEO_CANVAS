@@ -1,0 +1,12 @@
+// Cloudflare Worker: serves the app's static files and the cloud-sync API (worker/index.js).
+// Deployed automatically by Cloudflare Workers Builds on every push to the production branch.
+{
+  "name": "geo-canvas",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": ".", "binding": "ASSETS" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "geocanvas", "database_id": "b0c0f1ef-6c5c-4f4f-807d-2764aa2a6d2f", "migrations_dir": "migrations" }
+  ],
+  "observability": { "enabled": true }
+}

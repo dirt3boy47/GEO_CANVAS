@@ -67,7 +67,7 @@
 <header id="topbar" class="panel">
   <button class="ib" id="btn-sidebar" title="Layers" aria-label="Toggle layers panel"><svg><use xlink:href="#i-sidebar"/></svg></button>
   <button class="ib" id="btn-projects" title="Projects" aria-label="Projects"><svg><use xlink:href="#i-folder"/></svg></button>
-  <div class="title-block"><div id="project-name">GeoCanvas</div><div id="save-status">Saved</div></div>
+  <div class="title-block"><div id="project-name">GeoCanvas</div><div><span id="save-status">Saved</span><span id="cloud-status"></span></div></div>
   <div class="seg" role="group" aria-label="Mode">
     <button id="mode-nav" class="on"><svg><use xlink:href="#i-hand"/></svg><span>Navigate</span></button>
     <button id="mode-draw"><svg><use xlink:href="#i-ballpoint"/></svg><span>Draw</span></button>
@@ -96,6 +96,11 @@
   <div id="tab-project" class="tab" hidden>
     <label class="field">Project name<input id="proj-name" type="text"></label>
     <label class="field">Notes<textarea id="proj-notes" rows="7" placeholder="Field notes, site details, contacts…"></textarea></label>
+    <div id="proj-cloud" hidden>
+      <label class="opt"><input type="checkbox" id="proj-cloud-share"> Share this project through cloud sync</label>
+      <p class="hint" id="proj-cloud-status"></p>
+      <div class="row-btns"><button class="btn" id="proj-cloud-sync">Sync now</button></div>
+    </div>
     <div class="row-btns"><button class="btn" id="btn-backup">Back up project</button><button class="btn" id="btn-restore">Restore backup</button></div>
     <p class="hint" id="storage-note"></p>
   </div>
@@ -179,5 +184,6 @@
 <script src="js/app.js"></script>
 <script src="js/draw.js"></script>
 <script src="js/panels.js"></script>
+<script src="js/cloud.js"></script>
 </body>
 </html>

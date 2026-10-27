@@ -477,7 +477,7 @@
         return Store.getFiles(p.id, l.id).then(function (fs) { return fs.map(function (f) { return { layer: l.id, name: f.name, b64: abToB64(f.data instanceof ArrayBuffer ? f.data : new ArrayBuffer(0)) }; }); });
       }));
     }).then(function (groups) {
-      var proj = {}; for (var k in p) if (k !== 'layers') proj[k] = p[k];
+      var proj = {}; for (var k in p) if (k !== 'layers' && k !== 'cloud' && k !== 'cloudOff') proj[k] = p[k];
       proj.layers = p.layers.map(GC.stripLayer);
       var files = []; groups.forEach(function (g) { files = files.concat(g); });
       return new Blob([JSON.stringify({ format: 'geocanvas-web-backup', version: 1, saved: new Date().toISOString(), project: proj, files: files })], { type: 'application/json' });
@@ -503,6 +503,7 @@
       if (!data || data.format !== 'geocanvas-web-backup' || !data.project) { GC.busy(null); GC.toast('That file is not a GeoCanvas backup.', 'err'); return; }
       Store.listProjects().then(function (list) {
         var p = data.project;
+        delete p.cloud; delete p.cloudOff; // a restored project is shared again (merged with the cloud copy, if there is one)
         if (list.some(function (x) { return x.id === p.id; })) {
           p.id = Ink.uid(); p.name = p.name + ' (restored)';
         }
@@ -513,12 +514,57 @@
   };
 
   // ======================= projects =======================
+  function openOther(id) {
+    if (id === GC.project.id) return;
+    GC.busy('Opening…');
+    GC.saveNow().then(function () { return Store.loadProject(id); }).then(function (p) { GC.busy(null); GC.openProject(p); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); });
+  }
+  function afterDelete(id) {
+    if (id !== GC.project.id) { GC.toast('Project deleted.'); return; }
+    return Store.listProjects().then(function (rest) {
+      if (rest.length) return Store.loadProject(rest[0].id).then(GC.openProject);
+      var p = GC.newProject(); return Store.saveProject(p, null).then(function () { GC.openProject(p); });
+    }).then(function () { GC.toast('Project deleted.'); });
+  }
+  function deleteProject(meta) {
+    var id = meta.id, shared = GC.cloud && GC.cloud.linked(meta);
+    if (!shared) {
+      return GC.confirm('Delete “' + meta.name + '”?', 'The project and all its layers are removed from this iPad. This cannot be undone — make a backup first if unsure.', 'Delete project', true).then(function (ok) {
+        if (ok) return Store.deleteProject(id).then(function () { return afterDelete(id); });
+      });
+    }
+    GC.modal('<h2>Delete “' + esc(meta.name) + '”?</h2><p class="sub">This project is shared through cloud sync.</p>' +
+      '<p><b>Only from this iPad</b>: it stays in the cloud and on other devices, and you can download it again.</p>' +
+      '<p><b>Everywhere</b>: it is removed from the cloud too. Other devices keep their copy but stop sharing it. This cannot be undone.</p>' +
+      '<div class="actions"><button class="btn" data-a="no">Cancel</button><span class="spacer"></span><button class="btn" data-a="here">Only from this iPad</button><button class="btn danger" data-a="all">Everywhere</button></div>',
+      function (el, close) {
+        el.querySelector('[data-a=no]').onclick = close;
+        el.querySelector('[data-a=here]').onclick = function () { close(); Store.deleteProject(id).then(function () { return afterDelete(id); }); };
+        el.querySelector('[data-a=all]').onclick = function () {
+          close(); GC.busy('Deleting…');
+          GC.cloud.deleteEverywhere(id).then(function () { return Store.deleteProject(id); }).then(function () { GC.busy(null); return afterDelete(id); },
+            function (e) { GC.busy(null); GC.toast('Could not delete it from the cloud (' + e.message + '). Nothing was deleted.', 'err'); });
+        };
+      });
+  }
   $('btn-projects').onclick = function () {
-    GC.saveNow().then(Store.listProjects).then(function (list) {
-      var html = '<h2>Projects</h2><p class="sub">Stored on this iPad, in this browser. Back up important projects to Files.</p><div class="list">' +
-        list.map(function (p) { return '<div class="item' + (p.id === GC.project.id ? ' current' : '') + '" data-id="' + p.id + '"><div class="grow" data-a="open"><b>' + esc(p.name) + '</b><small>' + (p.layerOrder || []).length + ' layers · edited ' + GC.fmtTime(p.modified) + '</small></div>' +
+    var cloudOn = GC.cloud && GC.cloud.on();
+    if (cloudOn) GC.busy('Checking the cloud…');
+    Promise.all([GC.saveNow().then(Store.listProjects), cloudOn ? GC.cloud.remoteList() : Promise.resolve(null)]).then(function (r) {
+      GC.busy(null);
+      var list = r[0], remote = r[1] || [], here = {};
+      list.forEach(function (p) { here[p.id] = true; });
+      var cloudOnly = remote.filter(function (x) { return !here[x.id]; });
+      var tag = function (p) { return !cloudOn ? '' : (p.cloudOff ? ' · not shared' : (p.cloud ? ' <span class="cloud-tag">☁ shared</span>' : ' · not uploaded yet')); };
+      var html = '<h2>Projects</h2><p class="sub">' + (cloudOn ? 'On this iPad. Shared projects sync with the team cloud.' : 'Stored on this iPad, in this browser. Back up important projects to Files, or turn on cloud sync in Settings.') + '</p><div class="list">' +
+        list.map(function (p) { return '<div class="item' + (p.id === GC.project.id ? ' current' : '') + '" data-id="' + p.id + '"><div class="grow" data-a="open"><b>' + esc(p.name) + '</b><small>' + (p.layerOrder || []).length + ' layers · edited ' + GC.fmtTime(p.modified) + tag(p) + '</small></div>' +
           '<button class="ib" data-a="ren" title="Rename">' + GC.icon('text') + '</button><button class="ib" data-a="dup" title="Duplicate">' + GC.icon('copy') + '</button><button class="ib danger" data-a="del" title="Delete">' + GC.icon('trash') + '</button></div>'; }).join('') +
-        '</div><div class="actions"><button class="btn" data-a="close">Close</button><button class="btn primary" data-a="new">New project</button></div>';
+        '</div>' +
+        (cloudOnly.length ? '<div class="pop-title small">In the cloud, not on this iPad yet</div><div class="list">' + cloudOnly.map(function (x) {
+          return '<div class="item" data-cloud="' + esc(x.id) + '"><div class="grow" data-a="get"><b>' + esc(x.name) + '</b><small>☁ changed ' + GC.fmtTime(x.modified) + (x.device ? ' by ' + esc(x.device) : '') + ' · ' + Math.max(1, Math.round(x.size / 1024)) + ' KB · tap to download</small></div></div>';
+        }).join('') + '</div>' : '') +
+        (cloudOn && r[1] === null ? '<p class="hint">The cloud could not be reached, so projects from other devices are not listed.</p>' : '') +
+        '<div class="actions"><button class="btn" data-a="close">Close</button><button class="btn primary" data-a="new">New project</button></div>';
       GC.modal(html, function (el, close) {
         el.querySelector('[data-a=close]').onclick = close;
         el.querySelector('[data-a=new]').onclick = function () {
@@ -529,31 +575,25 @@
             Store.saveProject(p, null).then(function () { GC.openProject(p); });
           });
         };
+        Array.prototype.forEach.call(el.querySelectorAll('[data-cloud]'), function (it) {
+          it.onclick = function () {
+            close(); GC.busy('Downloading from the cloud…');
+            GC.saveNow().then(function () { return GC.cloud.download(it.getAttribute('data-cloud')); }).then(function (p) { GC.busy(null); GC.openProject(p); GC.toast('Downloaded “' + p.name + '”.'); }, function (e) { GC.busy(null); GC.toast('Download failed: ' + e.message, 'err'); });
+          };
+        });
         el.querySelector('.list').onclick = function (e) {
           var it = e.target.closest('[data-id]'), a = e.target.closest('[data-a]'); if (!it || !a) return;
           var id = it.getAttribute('data-id'), act = a.getAttribute('data-a'), meta = list.filter(function (x) { return x.id === id; })[0];
-          if (act === 'open') { close(); if (id !== GC.project.id) { GC.busy('Opening…'); Store.loadProject(id).then(function (p) { GC.busy(null); GC.openProject(p); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); }); } }
-          else if (act === 'ren') { close(); GC.prompt('Rename project', meta.name, 'Name', 'Rename').then(function (n) { if (!n) return; if (id === GC.project.id) { GC.project.name = n; $('project-name').textContent = n; $('proj-name').value = n; GC.markDirty(); } else Store.loadProject(id).then(function (p) { p.name = n; return Store.saveProject(p, {}); }); }); }
+          if (act === 'open') { close(); openOther(id); }
+          else if (act === 'ren') { close(); GC.prompt('Rename project', meta.name, 'Name', 'Rename').then(function (n) { if (!n) return; if (id === GC.project.id) { GC.project.name = n; $('project-name').textContent = n; $('proj-name').value = n; GC.markDirty(); } else Store.loadProject(id).then(function (p) { p.name = n; if (GC.cloud) GC.cloud.touch(id); return Store.saveProject(p, {}); }); }); }
           else if (act === 'dup') {
             close(); GC.busy('Duplicating…');
-            Store.loadProject(id).then(function (p) {
-              var oldId = p.id; p.id = Ink.uid(); p.name = p.name + ' copy'; p.created = Date.now();
+            GC.saveNow().then(function () { return Store.loadProject(id); }).then(function (p) {
+              var oldId = p.id; p.id = Ink.uid(); p.name = p.name + ' copy'; p.created = Date.now(); delete p.cloud; delete p.cloudOff;
               return Promise.all(p.layers.filter(function (l) { return l.hasSources; }).map(function (l) { return Store.getFiles(oldId, l.id).then(function (fs) { return Promise.all(fs.map(function (f) { return Store.putFile(p.id, l.id, f.name, f.data); })); }); }))
                 .then(function () { return Store.saveProject(p, null); }).then(function () { return p; });
             }).then(function (p) { GC.busy(null); GC.toast('Created “' + p.name + '”.'); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); });
-          } else if (act === 'del') {
-            close();
-            GC.confirm('Delete “' + meta.name + '”?', 'The project and all its layers are removed from this iPad. This cannot be undone — make a backup first if unsure.', 'Delete project', true).then(function (ok) {
-              if (!ok) return;
-              Store.deleteProject(id).then(function () {
-                if (id !== GC.project.id) { GC.toast('Project deleted.'); return; }
-                return Store.listProjects().then(function (rest) {
-                  if (rest.length) return Store.loadProject(rest[0].id).then(GC.openProject);
-                  var p = GC.newProject(); return Store.saveProject(p, null).then(function () { GC.openProject(p); });
-                }).then(function () { GC.toast('Project deleted.'); });
-              });
-            });
-          }
+          } else if (act === 'del') { close(); deleteProject(meta); }
         };
       });
     });
@@ -566,6 +606,7 @@
       '<label class="opt"><input type="checkbox" id="st-finger"' + (s.fingerDraw ? ' checked' : '') + '> Draw with finger in Draw mode (two fingers pan and zoom). Off: only Apple Pencil draws and fingers move the map.</label>' +
       '<label class="opt"><input type="checkbox" id="st-cross"' + (s.crosshair ? ' checked' : '') + '> Show centre crosshair</label>' +
       '<label class="field" style="margin:8px 0">Coordinate format<select id="st-fmt"><option value="dd">Decimal degrees</option><option value="dms">Degrees minutes seconds</option><option value="mga">MGA2020 grid (easting/northing)</option></select></label>' +
+      '<div class="pop-title small">Cloud sync</div><div id="st-cloud"></div>' +
       '<div class="pop-title small">Offline imagery</div><p class="hint" style="margin:0 0 6px">Saves Queensland aerial imagery for the area on screen (up to 4 zoom levels closer) so it shows without internet.</p>' +
       '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Save this area for offline use</button><button class="btn" id="st-clear">Delete saved imagery</button></div><p class="hint" id="st-off-msg"></p>' +
       '<div class="pop-title small">Storage</div><p class="hint" id="st-store" style="margin:0">Checking…</p>' +
@@ -578,6 +619,7 @@
       q('#st-cross').onchange = function () { s.crosshair = q('#st-cross').checked; $('crosshair').hidden = !s.crosshair; GC.saveSettings(); };
       q('#st-fmt').onchange = function () { s.coordFmt = q('#st-fmt').value; GC.saveSettings(); GC.updateHud(); };
       q('[data-a=ok]').onclick = close;
+      if (GC.cloud) GC.cloud.renderSettings(q('#st-cloud'));
       q('#st-offline').onclick = function () { saveOffline(q('#st-off-msg'), q('#st-offline')); };
       q('#st-clear').onclick = function () { if (window.caches) caches.delete('gc-tiles').then(function () { q('#st-off-msg').textContent = 'Saved imagery deleted.'; }); };
       var st = q('#st-store');

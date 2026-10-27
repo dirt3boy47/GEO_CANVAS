@@ -23,6 +23,28 @@ be **https://**, because Safari only allows GPS on secure websites.
 
 To update later: upload a new ZIP to the same Cloudflare project ("Create new deployment").
 
+## Cloud sync (share projects between devices)
+
+Projects — drawings, notes, imported KMZ/KML/shapefiles/GeoTIFFs (including the original files), GPS
+tracks and waypoints — can be shared with every iPad or computer that has the **team passcode**.
+
+- Turn it on per device: **Settings › Cloud sync**, enter a name for the device and the team passcode.
+- Every project is shared automatically (untick *Share this project through cloud sync* in the Project
+  tab to keep one private). Projects from other devices appear under **Projects › In the cloud** — tap to download.
+- Each device keeps working offline; changes sync when it is back online (status next to "Saved" at the top).
+- Two people can work on the same project at once: strokes, tracks and waypoints from both are kept.
+  If the same item or the same imported layer's settings are changed on two devices, the last device to sync wins.
+- Deleting a shared project asks whether to remove it *only from this iPad* or *everywhere*.
+
+How it works: the site is a Cloudflare Worker (`worker/index.js`, config in `wrangler.jsonc`) that serves
+the app and a small API at `/api/`. Data is stored in the Cloudflare D1 database `geocanvas`
+(schema in `migrations/`). Pushing to `main` redeploys automatically.
+
+The team passcode is stored only as a salted hash in D1 (`config` table). Change it in the app (Settings ›
+Cloud sync › Change team passcode); every device then has to enter the new one. If it is forgotten: in the
+Cloudflare dashboard open **Storage & Databases › D1 › geocanvas › Console** and run `DELETE FROM config;`.
+The next device to turn on cloud sync sets the new passcode (at least 8 characters). Projects are not affected.
+
 ## Using it
 
 | | |
@@ -34,7 +56,7 @@ To update later: upload a new ZIP to the same Cloudflare project ("Create new de
 | GPS (➤) | Position, accuracy (good/fair/poor), MGA coordinates, altitude, speed, compass, follow-me, track recording, waypoints with notes. Warns when the iPad is Wi-Fi-only (no GPS chip) or the fix is poor/stale. |
 | Export (⤒) | KML, KMZ, GeoJSON, GPX, transparent GeoTIFF, PNG + world file, print/PDF of the map, full project backup. Basemap imagery is never included. |
 | Layers | Show/hide, opacity, lock, reorder, rename, duplicate, delete, export, colours, labels, "Change coordinate system". |
-| Projects | Saved automatically on the iPad (IndexedDB). Several projects, rename/duplicate/delete, backup and restore. |
+| Projects | Saved automatically on the iPad (IndexedDB). Several projects, rename/duplicate/delete, backup and restore. Optional cloud sync between devices (see above). |
 | Offline | After the first visit the app works without internet. Settings › "Save this area for offline use" stores Queensland imagery for the area on screen. |
 
 ## Things to know
@@ -58,6 +80,9 @@ js/ink.js                    georeferenced ink engine (same model as the native 
 js/importers.js              KML/KMZ, shapefile/DBF, GeoJSON, GPX, GeoTIFF readers
 js/exporters.js              KML, GeoJSON, GPX, GeoTIFF and world-file writers
 js/store.js                  IndexedDB project storage
+js/cloud.js                  cloud sync: three-way merge with the team's copy in Cloudflare D1
+worker/index.js              Cloudflare Worker: serves the app and the /api/ sync endpoints
+wrangler.jsonc, migrations/  Worker configuration and D1 database schema
 js/app.js, draw.js, panels.js  map, layers, tools, Pencil input, GPS, import/export UI
 sw.js, manifest.webmanifest  offline support and Home Screen app
 vendor/                      Leaflet 1.9.4, proj4 2.11.0, JSZip 3.10.1, togeojson 5.8.1, geotiff.js 2.1.3
