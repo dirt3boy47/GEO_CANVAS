@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GeoCanvas">
+<meta name="theme-color" content="#0b1512">
+<title>GeoCanvas</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 4v16" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5z M2.5 12.5 12 17.5l9.5-5 M2.5 16.5 12 21.5l9.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v11m0 0-4-4m4 4 4-4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-gps" viewBox="0 0 24 24"><path d="M20.5 3.5 3.5 10.6l7 2.9 2.9 7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
+    <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10.5V8a4 4 0 0 1 7.6-1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-ballpoint" viewBox="0 0 24 24"><path d="M15.5 3.5 20.5 8.5 9 20H4v-5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4 20l3-3" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-fountain" viewBox="0 0 24 24"><path d="M12 2.5 18 10l-3 10H9L6 10z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 2.5v9" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="13" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M16.5 3.5 20.5 7.5 8 20l-4.5.5L4 16z M14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-highlighter" viewBox="0 0 24 24"><path d="M14 3.5 20.5 10l-7 7-6.5-6.5z M7 10.5 4 19.5h5l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-marker" viewBox="0 0 24 24"><path d="M9 3h6v6l3 3v9H6v-9l3-3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M6 15h12" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-handwriting" viewBox="0 0 24 24"><path d="M3 16c2-6 4-9 5.5-9S9 13 7 16s3-1 4.5-3 1.5 4 3 4 2.5-5 3.5-5 1 3 3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-eraser" viewBox="0 0 24 24"><path d="M14.5 4 21 10.5 11.5 20H6.5L3 16.5z M9 9.5l6.5 6.5M9 20h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-lasso" viewBox="0 0 24 24"><ellipse cx="13" cy="9.5" rx="8" ry="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3 2.4"/><path d="M8 14c-1 2 0 4 2 4s1 3-1 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-shapes" viewBox="0 0 24 24"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="15.5" cy="15.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-line" viewBox="0 0 24 24"><path d="M4 20 20 4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 20 20 4m0 0h-8m8 0v8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-rectangle" viewBox="0 0 24 24"><rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-ellipse" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-polygon" viewBox="0 0 24 24"><path d="M12 3 21 9.5 17.5 20h-11L3 9.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12m0-6.5V4.5a1.5 1.5 0 0 1 3 0V12m0-6a1.5 1.5 0 0 1 3 0v7m0-4a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5a6 6 0 0 1-5-2.7L4 14.5a1.6 1.6 0 0 1 2.6-1.8L8 14.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-zoom" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.6-1 1.2-1.9-.5-1 .2-2.1 1.3-2.1H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7.5" cy="11" r="1.4" fill="currentColor"/><circle cx="10.5" cy="7" r="1.4" fill="currentColor"/><circle cx="15" cy="7.5" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div id="map" aria-label="Map"></div>
+<div id="crosshair" aria-hidden="true"></div>
+
+<header id="topbar" class="panel">
+  <button class="ib" id="btn-sidebar" title="Layers" aria-label="Toggle layers panel"><svg><use xlink:href="#i-sidebar"/></svg></button>
+  <button class="ib" id="btn-projects" title="Projects" aria-label="Projects"><svg><use xlink:href="#i-folder"/></svg></button>
+  <div class="title-block"><div id="project-name">GeoCanvas</div><div id="save-status">Saved</div></div>
+  <div class="seg" role="group" aria-label="Mode">
+    <button id="mode-nav" class="on"><svg><use xlink:href="#i-hand"/></svg><span>Navigate</span></button>
+    <button id="mode-draw"><svg><use xlink:href="#i-ballpoint"/></svg><span>Draw</span></button>
+  </div>
+  <div class="spacer"></div>
+  <label class="basemap" title="Basemap"><svg><use xlink:href="#i-layers"/></svg><select id="basemap" aria-label="Basemap"></select></label>
+  <button class="ib" id="btn-import" title="Import GIS files"><svg><use xlink:href="#i-import"/></svg></button>
+  <button class="ib" id="btn-search" title="Search"><svg><use xlink:href="#i-search"/></svg></button>
+  <button class="ib" id="btn-gps" title="GPS"><svg><use xlink:href="#i-gps"/></svg></button>
+  <button class="ib" id="btn-export" title="Export"><svg><use xlink:href="#i-export"/></svg></button>
+  <span class="sep"></span>
+  <button class="ib" id="btn-undo" title="Undo" disabled><svg><use xlink:href="#i-undo"/></svg></button>
+  <button class="ib" id="btn-redo" title="Redo" disabled><svg><use xlink:href="#i-redo"/></svg></button>
+  <button class="ib" id="btn-settings" title="Settings"><svg><use xlink:href="#i-gear"/></svg></button>
+  <input type="file" id="file-input" multiple hidden>
+  <input type="file" id="restore-input" accept=".json,.geocanvas,application/json" hidden>
+</header>
+
+<aside id="sidebar" class="panel">
+  <div class="tabs"><button data-tab="layers" class="on">Layers</button><button data-tab="project">Project</button></div>
+  <div id="tab-layers" class="tab">
+    <div class="tab-head"><span id="layer-count"></span><button class="link" id="btn-add-layer"><svg><use xlink:href="#i-plus"/></svg>Annotation layer</button></div>
+    <ul id="layer-list"></ul>
+    <p class="hint">Annotation layers draw above imported GIS layers. Tap a layer to draw on it; double-tap to zoom to it.</p>
+  </div>
+  <div id="tab-project" class="tab" hidden>
+    <label class="field">Project name<input id="proj-name" type="text"></label>
+    <label class="field">Notes<textarea id="proj-notes" rows="7" placeholder="Field notes, site details, contacts…"></textarea></label>
+    <div class="row-btns"><button class="btn" id="btn-backup">Back up project</button><button class="btn" id="btn-restore">Restore backup</button></div>
+    <p class="hint" id="storage-note"></p>
+  </div>
+</aside>
+
+<aside id="inspector" class="panel" hidden>
+  <div class="insp-head"><div><div id="insp-title"></div><div id="insp-sub"></div></div><button class="ib" id="insp-close" aria-label="Close"><svg><use xlink:href="#i-close"/></svg></button></div>
+  <div id="insp-body"></div>
+</aside>
+
+<div id="selbar" class="panel" hidden>
+  <span id="sel-count"></span>
+  <button class="ib" id="sel-color" title="Recolour"><svg><use xlink:href="#i-palette"/></svg></button>
+  <select id="sel-layer" aria-label="Move to layer"></select>
+  <button class="ib" id="sel-dup" title="Duplicate"><svg><use xlink:href="#i-copy"/></svg></button>
+  <button class="ib danger" id="sel-del" title="Delete"><svg><use xlink:href="#i-trash"/></svg></button>
+  <button class="ib" id="sel-clear" title="Deselect"><svg><use xlink:href="#i-close"/></svg></button>
+</div>
+
+<div id="toolbar" class="panel" hidden>
+  <div id="tools"></div>
+  <span class="sep"></span>
+  <div id="swatches"></div>
+  <button id="btn-colors" class="rainbow" title="More colours" aria-label="More colours"><span id="cur-color"></span></button>
+  <span class="sep"></span>
+  <button id="btn-width" class="width-prev" title="Thickness and opacity"><span id="width-line"></span></button>
+  <select id="active-layer" aria-label="Draw on layer"></select>
+  <button class="ib" id="btn-done" title="Finish drawing"><svg><use xlink:href="#i-close"/></svg></button>
+</div>
+
+<div id="popover-width" class="panel pop" hidden>
+  <div class="pop-title" id="width-title">Thickness</div>
+  <label class="slider">Thickness <output id="width-val"></output><input type="range" id="width-range" min="0.5" max="24" step="0.5"></label>
+  <label class="slider">Opacity <output id="op-val"></output><input type="range" id="op-range" min="5" max="100" step="1"></label>
+  <label class="slider" id="text-size-row">Text size <output id="ts-val"></output><input type="range" id="ts-range" min="10" max="64" step="1"></label>
+  <div id="eraser-row" class="seg small"><button data-er="object" class="on">Whole object</button><button data-er="precision">Precision</button></div>
+  <div id="shape-row"><label class="check"><input type="checkbox" id="shape-fill"> Fill closed shapes</label><label class="check"><input type="checkbox" id="shape-dash"> Dashed outline</label></div>
+  <p class="hint" id="ink-hint"></p>
+</div>
+
+<div id="popover-colors" class="panel pop" hidden>
+  <div class="pop-title">Colour</div>
+  <div id="palette"></div>
+  <div class="pop-title small">Recent</div>
+  <div id="recent"></div>
+  <label class="custom">Custom <input type="color" id="custom-color"></label>
+</div>
+
+<div id="popover-shapes" class="panel pop" hidden><div id="shape-tools"></div></div>
+
+<div id="gps-panel" class="panel pop" hidden>
+  <div class="pop-title">GPS <span id="gps-badge" class="badge">Off</span></div>
+  <div id="gps-warn" class="warn" hidden></div>
+  <dl id="gps-data"></dl>
+  <div class="row-btns"><button class="btn" id="gps-follow">Follow me</button><button class="btn" id="gps-compass">Compass</button></div>
+  <div class="pop-title small">Track</div>
+  <div id="gps-track-info" class="hint">Not recording.</div>
+  <div class="row-btns"><button class="btn rec" id="gps-rec">Start recording</button></div>
+  <div class="pop-title small">Waypoint</div>
+  <input id="wp-name" type="text" placeholder="Name (e.g. Outcrop 3)">
+  <input id="wp-note" type="text" placeholder="Note">
+  <div class="row-btns"><button class="btn primary" id="gps-wp">Drop waypoint here</button></div>
+</div>
+
+<div id="hud" class="panel"><span id="hud-coord">—</span><span id="hud-zoom"></span></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="busy" class="panel" hidden><span class="spinner"></span><span id="busy-text"></span></div>
+
+<div id="modal-wrap" hidden><div id="modal" class="panel" role="dialog" aria-modal="true"></div></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/proj4.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/togeojson.js"></script>
+<script src="vendor/geotiff.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/ink.js"></script>
+<script src="js/store.js"></script>
+<script src="js/importers.js"></script>
+<script src="js/exporters.js"></script>
+<script src="js/app.js"></script>
+<script src="js/draw.js"></script>
+<script src="js/panels.js"></script>
+</body>
+</html>
