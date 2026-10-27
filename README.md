@@ -25,9 +25,13 @@ To update later: upload a new ZIP to the same Cloudflare project ("Create new de
 
 ## Team & cloud (every project on every device)
 
-- **Join:** tap ☁ in the top bar, type your name and the **team join code** (it looks like `ABCD-EFGH-JK23`;
-  capitals, spaces and dashes don't matter). Anyone in the team finds the code under ☁ › Team join code
-  (Copy / Share). No team yet? ☁ › **Start a team** makes the code. Never put the code in this public repository.
+- **Create a team:** tap ☁ in the top bar › **Create a team**, type your name and a team name (e.g. a job or crew).
+  GeoCanvas makes the team's join code. There can be any number of teams; each has its own projects.
+- **Join a team:** ☁ › **Join a team**, type your name and the team's **join code** (it looks like
+  `ABCD-EFGH-JK23`; capitals, spaces and dashes don't matter). Anyone in a team finds its code under ☁ › Team join
+  code (Copy / Share). Never put a join code in this public repository.
+- **Switch team:** ☁ › Leave / switch team, then join or create another. Projects of the old team stay on the iPad
+  (labelled in Projects) but are never uploaded into the new team.
 - **Every project is a team project.** Projects › one list of all team projects, on this iPad or not — tap one to
   open it. A new iPad that joins with nothing on it opens the team's latest project.
 - **Saving is automatic:** changes go up about 2 s after you stop; other devices check every 15 s. The ☁ button
@@ -36,14 +40,15 @@ To update later: upload a new ZIP to the same Cloudflare project ("Create new de
 - **Two people on one project:** strokes, tracks, waypoints and photos from both are kept. If the same item or the
   same imported layer's settings change on two devices, the last device to save wins.
 - **Removing access:** ☁ › New join code… The old code stops working; everyone rejoins with the new one (their
-  projects are safe). 20 wrong codes from one connection lock it out for 10 minutes.
+  projects are safe). 20 wrong codes from one connection lock it out for 10 minutes; one connection can create at
+  most 10 teams per 10 minutes.
 - **Deleting:** “Only from this iPad” (stays in the team cloud) or “For everyone”.
 
 How it works: the site is a Cloudflare Worker (`worker/index.js`, config in `wrangler.jsonc`) that serves the app
 and a small API at `/api/`. Data is stored in the Cloudflare D1 database `geocanvas` (schema in `migrations/`).
-Pushing to the production branch redeploys automatically. The join code is stored only as a salted hash. If it is
-forgotten: Cloudflare dashboard › Storage & Databases › D1 › geocanvas › Console › `DELETE FROM config;` — then the
-next person to tap ☁ can **Start a team** with a new code. Projects are not affected.
+Pushing to the production branch redeploys automatically. Teams are in the `teams` table; join codes are stored
+only as SHA-256 fingerprints. If every member of a team forgets its code, make a new team (☁ › Create a team);
+the old team's projects are still on the iPads that had them.
 
 ## Using it
 

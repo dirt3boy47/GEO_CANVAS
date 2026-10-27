@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.2' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.3' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 

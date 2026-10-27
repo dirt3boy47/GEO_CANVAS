@@ -92,6 +92,9 @@
   // ---------- settings, status ----------
   function cfg() { return GC.settings.cloud || {}; }
   function on() { return !!cfg().key; }
+  function team() { return cfg().team || null; }
+  /** A project last synced with another team stays on this iPad but is never uploaded into this team. */
+  function otherTeam(p) { return !!(p && p.cloud && p.cloud.team && team() && p.cloud.team !== team().id); }
   var status = { state: 'off', at: 0, msg: '' };
   function hhmm(t) { return new Date(t).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
   function waiting() { return Object.keys(pendingSet()).length; }
@@ -103,9 +106,10 @@
       case 'syncing': return { cls: 'busy', short: 'Saving…', long: 'Saving to the cloud…' };
       case 'offline': return { cls: 'warn', short: 'Offline', long: n ? 'Offline. Changes to ' + n + ' project' + (n > 1 ? 's are' : ' are') + ' kept on this iPad and upload by themselves when the internet is back.' : 'Offline. Everything was saved before the connection dropped.' };
       case 'error': return { cls: 'err', short: 'Not saved', long: 'Not saved to the cloud: ' + status.msg };
+      case 'foreign': return { cls: 'warn', short: 'Other team', long: 'This project belongs to a team this iPad has left, so it is kept on this iPad only and not saved to “' + (team() ? team().name : 'this team') + '”.' };
       case 'skip': return { cls: 'warn', short: 'Not in cloud', long: 'This project was removed from the team cloud on another device. Projects › Upload again to share it again.' };
       case 'ok': return { cls: 'ok', short: 'Saved ' + hhmm(status.at), long: 'All changes saved to the cloud at ' + hhmm(status.at) + '.' };
-      default: return { cls: 'idle', short: 'Ready', long: 'Connected to the team cloud. Changes save by themselves.' };
+      default: return { cls: 'idle', short: 'Ready', long: 'Connected to ' + (team() ? '“' + team().name + '”' : 'the team cloud') + '. Changes save by themselves.' };
     }
   }
   function setStatus(state, msg) {
@@ -327,7 +331,7 @@
     return JSON.stringify([a.order, a.layers, a.files, META.map(function (f) { return a.meta[f]; })]) !== JSON.stringify([b.order, b.layers, b.files || {}, META.map(function (f) { return b.meta[f]; })]);
   }
   function baseOf(p, layersById, order, meta, files, rev, prev) {
-    var b = { rev: rev, order: order.slice(), meta: {}, files: files || {}, layers: {} };
+    var b = { rev: rev, team: team() ? team().id : undefined, order: order.slice(), meta: {}, files: files || {}, layers: {} };
     META.forEach(function (f) { b.meta[f] = meta[f]; });
     order.forEach(function (id) {
       var l = layersById[id];
@@ -391,7 +395,7 @@
     var stillOurs = function () { return isOpen ? GC.project === p : !(GC.project && GC.project.id === p.id); };
     function round(rem) {
       return (rem !== undefined ? Promise.resolve(rem) : getRemote(p.id)).then(function (rem) {
-        if (p.cloudOff || !stillOurs()) return 'skip';
+        if (p.cloudOff || otherTeam(p) || !stillOurs()) return 'skip';
         var base = p.cloud || null;
         if (rem && rem.deleted) {
           if (base) { // deleted from the cloud on another device: keep this copy, stop sharing it
@@ -457,6 +461,7 @@
     if (running) { again = true; return Promise.resolve(); }
     var p = GC.project;
     if (p.cloudOff) { setStatus('skip'); return Promise.resolve(); }
+    if (otherTeam(p)) { setStatus('foreign'); return Promise.resolve(); }
     if (!force && Date.now() - lastCheck < 12000 && !pendingSet()[p.id]) return Promise.resolve();
     if (navigator.onLine === false) { setStatus('offline'); return Promise.resolve(); }
     running = true; lastCheck = Date.now();
@@ -483,7 +488,7 @@
       var remote = {}; r[1].projects.forEach(function (x) { remote[x.id] = x; });
       var pend = pendingSet();
       var todo = r[0].filter(function (m) {
-        if (m.cloudOff || (GC.project && m.id === GC.project.id)) return false;
+        if (m.cloudOff || otherTeam(m) || (GC.project && m.id === GC.project.id)) return false;
         var x = remote[m.id];
         return !m.cloud || pend[m.id] || !x || x.rev !== m.cloud.rev;
       });
@@ -516,32 +521,38 @@
     var box = $('proj-cloud'); if (!box) return;
     box.hidden = false;
     if (GC.project && GC.project.cloudOff) status.state = 'skip';
+    else if (otherTeam(GC.project)) status.state = 'foreign';
     setStatus(status.state);
   }
   if ($('proj-cloud-sync')) $('proj-cloud-sync').onclick = function () { if (!on()) { openTeam(); return; } run(true); syncOthers(); };
 
   // ---------- team: join code ----------
-  var ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789';
   /** Join codes are typed however people like: case, spaces and dashes don't matter. */
   function normCode(t) { var c = String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''), g = c.match(/.{1,4}/g); return g ? g.join('-') : ''; }
-  function newCode() { var r = new Uint32Array(12), s = ''; crypto.getRandomValues(r); for (var i = 0; i < 12; i++) s += ALPHA[r[i] % ALPHA.length]; return normCode(s); }
   function showCode(k) { return String(k || '').toUpperCase(); }
-  function teamExists() { // 503 "unset" = no team yet; anything else (401) = a team exists
-    return api('GET', 'ping', null, { key: '', timeout: 10000 }).then(function () { return true; }, function (e) { return e.status === 503 ? false : e.offline ? null : true; });
-  }
-  function connect(key, device, create) {
+  function connect(key, device) {
     key = normCode(key);
-    var ping = function () { return api('GET', 'ping', null, { key: key, timeout: 15000 }); };
-    return (create ? api('POST', 'passcode', { key: key }, { key: key }).then(ping) : ping()).catch(function (e) {
+    return api('GET', 'ping', null, { key: key, timeout: 15000 }).catch(function (e) {
       if (e.offline) throw new Error('No internet connection. Joining needs to be online once.');
-      if (e.status === 503) throw new Error('This GeoCanvas has no team yet. Tap “Start a team” instead.');
       throw e;
-    }).then(function () {
-      GC.settings.cloud = { key: key, device: device }; GC.saveSettings();
+    }).then(function (r) {
+      GC.settings.cloud = { key: key, device: device, team: r.team }; GC.saveSettings();
       try { localStorage.removeItem('gc.cloudPending'); } catch (e) { /* ignore */ }
       refreshProjectTab();
-      return openLatestIfEmpty().then(function () { run(true).then(syncOthers); });
+      return openLatestIfEmpty().then(function () { lastCheck = 0; run(true).then(syncOthers); });
     });
+  }
+  /** A brand-new team: the server makes its join code; this iPad joins it. */
+  function createTeam(name, device) {
+    return api('POST', 'teams', { name: name }, { key: '-', timeout: 15000 }).catch(function (e) {
+      if (e.offline) throw new Error('No internet connection. Creating a team needs to be online.');
+      throw e;
+    }).then(function (r) { return connect(r.code, device); });
+  }
+  /** Devices that joined before teams had names learn their team on start-up. */
+  function refreshTeam() {
+    if (!on()) return Promise.resolve();
+    return api('GET', 'ping', null, { timeout: 15000 }).then(function (r) { if (r.team) { GC.settings.cloud.team = r.team; GC.saveSettings(); setStatus(status.state); } }, function () {});
   }
   /** A new iPad that joins with only its empty starter project opens the team's latest project instead. */
   function isEmpty(p) { return !p.cloud && !p.notes && p.layers.every(function (l) { return l.kind === 'drawing' && !l.items.length; }); }
@@ -571,57 +582,77 @@
   function openTeam() {
     var c = cfg();
     if (!on()) {
-      GC.modal('<h2>Join your team</h2><p class="sub">Projects are then saved to the team cloud automatically and can be opened on any iPad or computer in the team. This iPad keeps a copy and works offline.</p>' +
-        '<label class="field">Your name<input type="text" id="tm-name" placeholder="e.g. Sam" value="' + esc(c.device || '') + '" autocomplete="name"></label>' +
-        '<label class="field">Team join code<input type="text" id="tm-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase"></label>' +
-        '<p class="hint">Ask anyone already in the team: it is under ☁ › Team join code.</p><p class="fail" id="tm-msg" hidden></p>' +
-        '<div class="actions"><button class="btn" data-a="no">Not now</button><button class="btn primary" data-a="join">Join team</button></div>' +
-        '<div id="tm-start" hidden><div class="pop-title small">No team yet?</div><p class="hint" style="margin:0 0 8px">Start one: GeoCanvas makes a join code for you to share with the others.</p><button class="btn" data-a="start">Start a team</button></div>',
+      GC.modal('<h2>Team & cloud</h2><p class="sub">Join a team, or create one, and projects are saved to the cloud automatically and open on every iPad or computer in the team. This iPad keeps a copy and works offline.</p>' +
+        '<label class="field">Your name<input type="text" id="tm-name" placeholder="e.g. Sam" value="' + esc(c.device || GC.settings.lastName || '') + '" autocomplete="name"></label>' +
+        '<div class="seg tm-tabs" id="tm-tabs"><button data-t="join" class="on">Join a team</button><button data-t="create">Create a team</button></div>' +
+        '<div id="tm-join"><label class="field">Team join code<input type="text" id="tm-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase"></label>' +
+        '<p class="hint">Ask anyone in the team: it is under ☁ › Team join code.</p></div>' +
+        '<div id="tm-create" hidden><label class="field">Team name<input type="text" id="tm-team" placeholder="e.g. T2W Pipeline crew"></label>' +
+        '<p class="hint">GeoCanvas makes a join code for the new team; share it with the people you want in it.</p></div>' +
+        '<p class="fail" id="tm-msg" hidden></p>' +
+        '<div class="actions"><button class="btn" data-a="no">Not now</button><button class="btn primary" data-a="go">Join team</button></div>',
         function (el, close) {
-          var msg = function (t) { var m = el.querySelector('#tm-msg'); m.hidden = !t; m.textContent = t || ''; };
-          var name = function () { return el.querySelector('#tm-name').value.trim(); };
-          el.querySelector('[data-a=no]').onclick = close;
-          el.querySelector('[data-a=join]').onclick = function () {
-            var code = normCode(el.querySelector('#tm-code').value);
-            if (!name()) { msg('Type your name, so others can see who changed what.'); return; }
-            if (code.replace(/-/g, '').length < 8) { msg('Type the team join code (12 letters and numbers).'); return; }
-            var who = name(); msg(''); el.querySelector('[data-a=join]').textContent = 'Joining…';
-            connect(code, who).then(function () { close(); GC.toast('Welcome to the team, ' + who + '. Your projects now save to the cloud by themselves.'); }, function (e) { el.querySelector('[data-a=join]').textContent = 'Join team'; msg(e.message); });
+          var mode = 'join', q = function (x) { return el.querySelector(x); };
+          var msg = function (t) { var m = q('#tm-msg'); m.hidden = !t; m.textContent = t || ''; };
+          q('[data-a=no]').onclick = close;
+          q('#tm-tabs').onclick = function (e) {
+            var b = e.target.closest('[data-t]'); if (!b) return;
+            mode = b.getAttribute('data-t'); msg('');
+            Array.prototype.forEach.call(q('#tm-tabs').children, function (x) { x.classList.toggle('on', x === b); });
+            q('#tm-join').hidden = mode !== 'join'; q('#tm-create').hidden = mode !== 'create';
+            q('[data-a=go]').textContent = mode === 'join' ? 'Join team' : 'Create team';
           };
-          teamExists().then(function (x) { if (x === false) el.querySelector('#tm-start').hidden = false; });
-          el.querySelector('[data-a=start]').onclick = function () {
-            if (!name()) { msg('Type your name first.'); return; }
-            var code = newCode();
-            connect(code, name(), true).then(function () { close(); openTeam(); GC.toast('Your team is ready. Share the join code with the others.'); }, function (e) { msg(e.message); });
+          q('[data-a=go]').onclick = function () {
+            var who = q('#tm-name').value.trim(), btn = q('[data-a=go]'), label = btn.textContent;
+            if (!who) { msg('Type your name, so others can see who changed what.'); return; }
+            var job;
+            if (mode === 'join') {
+              var code = normCode(q('#tm-code').value);
+              if (code.replace(/-/g, '').length < 8) { msg('Type the team join code (12 letters and numbers).'); return; }
+              job = connect(code, who);
+            } else {
+              var tn = q('#tm-team').value.trim();
+              if (!tn) { msg('Give the team a name, e.g. the job or crew.'); return; }
+              job = createTeam(tn, who);
+            }
+            msg(''); btn.textContent = mode === 'join' ? 'Joining…' : 'Creating…';
+            job.then(function () {
+              close();
+              if (mode === 'create') { openTeam(); GC.toast('Team “' + team().name + '” is ready. Share its join code with the others.'); }
+              else GC.toast('Welcome to “' + team().name + '”, ' + who + '. Your projects now save to the cloud by themselves.');
+            }, function (e) { btn.textContent = label; msg(e.message); });
           };
         });
       return;
     }
     var code = showCode(c.key);
-    GC.modal('<h2>Team & cloud</h2><p class="tm-status" id="tm-status"></p>' +
+    GC.modal('<h2>' + esc(team() ? team().name : 'Team & cloud') + '</h2><p class="tm-status" id="tm-status"></p>' +
       '<div class="pop-title small">Team join code</div><div class="tm-code"><code>' + esc(code) + '</code><button class="btn" data-a="copy">Copy</button>' + (navigator.share ? '<button class="btn" data-a="share">Share…</button>' : '') + '</div>' +
       '<p class="hint" style="margin:4px 0 0">Anyone who types this code in GeoCanvas (☁ in the top bar) joins the team and sees every project.</p>' +
+      '<div class="pop-title small">Team</div><p style="margin:0">' + esc(team() ? team().name : '') + ' <button class="link" data-a="tname">Rename team</button></p>' +
       '<div class="pop-title small">You</div><p style="margin:0">' + esc(c.device || 'This iPad') + ' <button class="link" data-a="rename">Change name</button></p>' +
-      '<div class="actions"><button class="btn" data-a="leave">Leave team on this iPad</button><button class="btn" data-a="recode">New join code…</button><span class="spacer"></span><button class="btn" data-a="now">Save now</button><button class="btn primary" data-a="ok">Done</button></div>',
+      '<div class="actions"><button class="btn" data-a="leave">Leave / switch team</button><button class="btn" data-a="recode">New join code…</button><span class="spacer"></span><button class="btn" data-a="now">Save now</button><button class="btn primary" data-a="ok">Done</button></div>',
       function (el, close) {
         setStatus(status.state);
         el.querySelector('[data-a=ok]').onclick = close;
         el.querySelector('[data-a=copy]').onclick = function () { copyText(code).then(function () { GC.toast('Join code copied.'); }); };
         if (el.querySelector('[data-a=share]')) el.querySelector('[data-a=share]').onclick = function () { navigator.share({ text: 'Join our GeoCanvas team: open ' + location.origin + ' , tap ☁ and enter the code ' + code }).catch(function () {}); };
         el.querySelector('[data-a=now]').onclick = function () { setStatus('syncing'); run(true).then(syncOthers); };
+        el.querySelector('[data-a=tname]').onclick = function () { close(); GC.prompt('Team name', team() ? team().name : '', 'e.g. T2W Pipeline crew', 'Rename').then(function (n) { if (!n) { openTeam(); return; } api('POST', 'team', { name: n }).then(function (r) { GC.settings.cloud.team = r.team; GC.saveSettings(); openTeam(); }, function (e) { GC.toast(e.message, 'err'); }); }); };
         el.querySelector('[data-a=rename]').onclick = function () { close(); GC.prompt('Your name', c.device || '', 'e.g. Sam', 'Save').then(function (n) { if (n) { GC.settings.cloud.device = n; GC.saveSettings(); } openTeam(); }); };
         el.querySelector('[data-a=leave]').onclick = function () {
           close();
-          GC.confirm('Leave the team on this iPad?', 'Projects stay on this iPad and in the team cloud, but this iPad stops saving to the cloud until it joins again.', 'Leave', true).then(function (ok) {
-            if (!ok) return; delete GC.settings.cloud; GC.saveSettings(); setStatus('off'); refreshProjectTab(); GC.toast('This iPad has left the team.');
+          GC.confirm('Leave “' + (team() ? team().name : 'the team') + '” on this iPad?', 'Its projects stay in the team cloud, and the copies on this iPad stay here, but they stop saving. You can then join or create another team.', 'Leave', true).then(function (ok) {
+            if (!ok) return;
+            GC.settings.lastName = c.device; delete GC.settings.cloud; GC.saveSettings();
+            setStatus('off'); refreshProjectTab(); GC.toast('This iPad has left the team.'); openTeam();
           });
         };
         el.querySelector('[data-a=recode]').onclick = function () {
           close();
           GC.confirm('Make a new join code?', 'The old code stops working: everyone else in the team has to join again with the new code (their projects stay safe). Use this if the code got to someone it shouldn’t.', 'New code', true).then(function (ok) {
             if (!ok) return;
-            var k = newCode();
-            api('POST', 'passcode', { key: k }).then(function () { GC.settings.cloud.key = k; GC.saveSettings(); openTeam(); GC.toast('New join code made. Share it with the team.'); }, function (e) { GC.toast(e.message, 'err'); });
+            api('POST', 'team/code', {}).then(function (r) { GC.settings.cloud.key = normCode(r.code); GC.saveSettings(); openTeam(); GC.toast('New join code made. Share it with the team.'); }, function (e) { GC.toast(e.message, 'err'); });
           });
         };
       });
@@ -638,19 +669,19 @@
       if (!rem || rem.deleted || !rem.manifest) throw new Error('That project is no longer in the cloud.');
       var m = rem.manifest.meta || {};
       var p = { id: id, name: m.name || 'Untitled', created: m.created || Date.now(), modified: Date.now(), notes: m.notes || '', view: m.view || { lat: GC.TOOWOOMBA[0], lon: GC.TOOWOOMBA[1], zoom: 14 },
-        basemap: m.basemap || 'qld', activeLayer: null, layers: [], cloud: { rev: 0, order: [], layers: {}, files: {}, meta: { name: m.name || 'Untitled', notes: m.notes || '', basemap: m.basemap || 'qld' } } };
+        basemap: m.basemap || 'qld', activeLayer: null, layers: [], cloud: { rev: 0, team: team() ? team().id : undefined, order: [], layers: {}, files: {}, meta: { name: m.name || 'Untitled', notes: m.notes || '', basemap: m.basemap || 'qld' } } };
       return Store.saveProject(p, {}).then(function () { return enqueue(function () { return syncProject(p, false); }); }).then(function () { return Store.loadProject(id); });
     });
   }
   function deleteEverywhere(id) { return api('DELETE', 'projects/' + id); }
-  function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff; }
+  function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff && !otherTeam(meta); }
 
-  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, touch: function (id) { pending(id, true); },
+  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, touch: function (id) { pending(id, true); },
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
   // start
   if ($('btn-cloud')) $('btn-cloud').onclick = openTeam;
   refreshProjectTab();
   setStatus(on() ? 'idle' : 'off');
-  if (on()) setTimeout(function () { run(true).then(syncOthers); }, 1500);
+  if (on()) setTimeout(function () { refreshTeam().then(function () { return run(true); }).then(syncOthers); }, 1500);
 })(window);

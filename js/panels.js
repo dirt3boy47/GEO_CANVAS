@@ -757,7 +757,7 @@
       remote.forEach(function (x) { byId[x.id] = x; });
       // One list: every team project, whether or not it is on this iPad yet.
       local.forEach(function (m) {
-        var x = byId[m.id], state = !cloudOn ? '' : m.cloudOff ? 'removed' : (m.cloud ? 'team' : 'new');
+        var x = byId[m.id], state = !cloudOn ? '' : m.cloudOff ? 'removed' : GC.cloud.otherTeam(m) ? 'foreign' : (m.cloud ? 'team' : 'new');
         rows.push({ id: m.id, name: m.name, here: true, state: state, layers: (m.layerOrder || []).length, t: Math.max(m.modified || 0, x ? x.modified || 0 : 0), by: x && x.modified > (m.modified || 0) ? x.device : null, meta: m });
         delete byId[m.id];
       });
@@ -768,9 +768,10 @@
         if (r.state === 'team') return '<span class="cloud-tag">☁</span>';
         if (r.state === 'new') return ' · uploads when there is something in it';
         if (r.state === 'removed') return ' · <b>removed from the team cloud</b>';
+        if (r.state === 'foreign') return ' · from a team this iPad has left (kept here only)';
         return '';
       };
-      var html = '<h2>Projects</h2><p class="sub">' + (cloudOn ? 'Every team project, on any device. Tap one to open it; changes save by themselves.' : 'On this iPad only. Tap ☁ in the top bar to join your team and keep projects in the cloud.') + (cloudOn && r[1] === null ? ' <b>Offline: only projects on this iPad are shown.</b>' : '') + '</p><div class="list">' +
+      var html = '<h2>Projects</h2><p class="sub">' + (cloudOn ? (GC.cloud.team() ? '<b>' + esc(GC.cloud.team().name) + '</b>: every' : 'Every') + ' team project, on any device. Tap one to open it; changes save by themselves.' : 'On this iPad only. Tap ☁ in the top bar to join your team and keep projects in the cloud.') + (cloudOn && r[1] === null ? ' <b>Offline: only projects on this iPad are shown.</b>' : '') + '</p><div class="list">' +
         rows.map(function (x) {
           return '<div class="item' + (x.id === GC.project.id ? ' current' : '') + '" data-id="' + esc(x.id) + '"><div class="grow" data-a="open"><b>' + esc(x.name) + '</b><small>' +
             (x.here ? x.layers + ' layers · ' : '') + 'edited ' + GC.fmtTime(x.t) + (x.by ? ' by ' + esc(x.by) : '') + ' ' + tag(x) + '</small></div>' +

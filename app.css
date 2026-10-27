@@ -323,3 +323,5 @@ body.georef #sidebar, body.georef #toolbar, body.georef #inspector, body.georef 
 .tm-status.err { background: rgba(201,42,42,.14); color: var(--danger); }
 .tm-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tm-code code { font: 700 20px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .08em; padding: 8px 12px; border-radius: 10px; background: var(--chip); user-select: all; -webkit-user-select: all; }
+.tm-tabs { display: flex; margin: 10px 0 4px; }
+.tm-tabs button { flex: 1; justify-content: center; }
