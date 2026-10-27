@@ -434,6 +434,7 @@
   // In Navigate mode a tap on drawn ink or a GIS feature opens the inspector.
   map.on('click', function (e) {
     if (GC.mode === 'draw') return;
+    if (GC.measure && GC.measure.click(e)) return; // measuring: taps add points
     GC.pickAt(e);
   });
 
@@ -589,6 +590,7 @@
   // ---------- modes ----------
   GC.setMode = function (m) {
     if (g) cancelGesture();
+    if (m === 'draw' && GC.measure && GC.measure.isOn()) GC.measure.close();
     GC.mode = m;
     document.body.classList.toggle('draw', m === 'draw');
     $('mode-nav').classList.toggle('on', m === 'nav'); $('mode-draw').classList.toggle('on', m === 'draw');

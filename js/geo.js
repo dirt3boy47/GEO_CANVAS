@@ -24,11 +24,48 @@
     var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a[1] * D2R) * Math.cos(b[1] * D2R) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
   }
-  function pathLength(coords) { var s = 0; for (var i = 1; i < coords.length; i++) s += haversine(coords[i - 1], coords[i]); return s; }
-  function ringArea(ring) { // spherical, m²
-    var R = 6371008.8, t = 0;
-    for (var i = 0; i < ring.length; i++) { var p = ring[i], q = ring[(i + 1) % ring.length]; t += (q[0] - p[0]) * D2R * (2 + Math.sin(p[1] * D2R) + Math.sin(q[1] * D2R)); }
+  /** Distance on the GRS80 ellipsoid (GDA2020/WGS84), Vincenty's inverse formula; mm-accurate. */
+  function geodesic(a, b) {
+    var A = 6378137, F = 1 / 298.257222101, B = A * (1 - F);
+    var L = (b[0] - a[0]) * D2R, U1 = Math.atan((1 - F) * Math.tan(a[1] * D2R)), U2 = Math.atan((1 - F) * Math.tan(b[1] * D2R));
+    var sU1 = Math.sin(U1), cU1 = Math.cos(U1), sU2 = Math.sin(U2), cU2 = Math.cos(U2), lam = L, prev, sS, cS, sig, ca2, c2m, it = 0;
+    do {
+      var sl = Math.sin(lam), cl = Math.cos(lam);
+      sS = Math.sqrt((cU2 * sl) * (cU2 * sl) + (cU1 * sU2 - sU1 * cU2 * cl) * (cU1 * sU2 - sU1 * cU2 * cl));
+      if (sS === 0) return 0;
+      cS = sU1 * sU2 + cU1 * cU2 * cl; sig = Math.atan2(sS, cS);
+      var sa = cU1 * cU2 * sl / sS; ca2 = 1 - sa * sa;
+      c2m = ca2 ? cS - 2 * sU1 * sU2 / ca2 : 0;
+      var C = F / 16 * ca2 * (4 + F * (4 - 3 * ca2));
+      prev = lam; lam = L + (1 - C) * F * sa * (sig + C * sS * (c2m + C * cS * (-1 + 2 * c2m * c2m)));
+    } while (Math.abs(lam - prev) > 1e-12 && ++it < 200);
+    if (it >= 200) return haversine(a, b); // near-antipodal: not needed here
+    var u2 = ca2 * (A * A - B * B) / (B * B), K = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2))), K2 = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)));
+    var dS = K2 * sS * (c2m + K2 / 4 * (cS * (-1 + 2 * c2m * c2m) - K2 / 6 * c2m * (-3 + 4 * sS * sS) * (-3 + 4 * c2m * c2m)));
+    return B * K * (sig - dS);
+  }
+  function pathLength(coords) { var s = 0; for (var i = 1; i < coords.length; i++) s += geodesic(coords[i - 1], coords[i]); return s; }
+  /** Area in m² on the GRS80 ellipsoid: the ring is projected to an equal-area (LAEA) plane centred on it. */
+  function ringArea(ring) {
+    if (ring.length < 3) return 0;
+    var t = 0, i, p, q;
+    if (global.proj4) {
+      var lon = 0, lat = 0; ring.forEach(function (c) { lon += c[0]; lat += c[1]; }); lon /= ring.length; lat /= ring.length;
+      try {
+        var pr = proj4('+proj=laea +lat_0=' + lat + ' +lon_0=' + lon + ' +ellps=GRS80 +units=m +no_defs'), xy = ring.map(function (c) { return pr.forward([c[0], c[1]]); });
+        for (i = 0; i < xy.length; i++) { p = xy[i]; q = xy[(i + 1) % xy.length]; t += p[0] * q[1] - q[0] * p[1]; }
+        if (isFinite(t)) return Math.abs(t / 2);
+      } catch (e) { /* fall back to the sphere */ }
+      t = 0;
+    }
+    var R = 6371008.8;
+    for (i = 0; i < ring.length; i++) { p = ring[i]; q = ring[(i + 1) % ring.length]; t += (q[0] - p[0]) * D2R * (2 + Math.sin(p[1] * D2R) + Math.sin(q[1] * D2R)); }
     return Math.abs(t * R * R / 2);
+  }
+  /** Initial true bearing from a to b, degrees 0–360. */
+  function bearing(a, b) {
+    var y = Math.sin((b[0] - a[0]) * D2R) * Math.cos(b[1] * D2R), x = Math.cos(a[1] * D2R) * Math.sin(b[1] * D2R) - Math.sin(a[1] * D2R) * Math.cos(b[1] * D2R) * Math.cos((b[0] - a[0]) * D2R);
+    return (Math.atan2(y, x) / D2R + 360) % 360;
   }
 
   // ---------- Coordinate reference systems (proj4 definitions) ----------
@@ -172,7 +209,7 @@
     return null;
   }
 
-  global.Geo = { merc: merc, unmerc: unmerc, to3857: to3857, metersPerPixel: metersPerPixel, haversine: haversine, pathLength: pathLength,
+  global.Geo = { merc: merc, unmerc: unmerc, to3857: to3857, metersPerPixel: metersPerPixel, haversine: haversine, geodesic: geodesic, bearing: bearing, pathLength: pathLength,
     ringArea: ringArea, CRS: CRS, init: init, crsLabel: crsLabel, toWGS84: toWGS84, fromWGS84: fromWGS84, parsePrj: parsePrj,
     pickerOptions: pickerOptions, utmZone: utmZone, fmt: fmt, parseCoordinate: parseCoordinate };
 })(typeof window !== 'undefined' ? window : global);

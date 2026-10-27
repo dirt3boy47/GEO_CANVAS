@@ -34,6 +34,7 @@
     <symbol id="i-gline" viewBox="0 0 24 24"><path d="M4 18 9.5 9l5 6L20 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-gpoly" viewBox="0 0 24 24"><path d="M5 6.5 15 4l5 8-6 8-9-3z" fill="currentColor" fill-opacity=".35" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
     <symbol id="i-grip" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></g></symbol>
+    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 13l1.8 1.8M9.5 10.5l2.6 2.6M12 8l1.8 1.8M14.5 5.5l2.6 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
     <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
@@ -82,6 +83,7 @@
   <label class="basemap" title="Basemap"><svg><use xlink:href="#i-layers"/></svg><select id="basemap" aria-label="Basemap"></select></label>
   <button class="ib" id="btn-import" title="Import GIS files"><svg><use xlink:href="#i-import"/></svg></button>
   <button class="ib" id="btn-search" title="Search"><svg><use xlink:href="#i-search"/></svg></button>
+  <button class="ib" id="btn-measure" title="Measure distance and area" aria-label="Measure"><svg><use xlink:href="#i-ruler"/></svg></button>
   <button class="ib" id="btn-gps" title="GPS"><svg><use xlink:href="#i-gps"/></svg></button>
   <button class="ib" id="btn-export" title="Export"><svg><use xlink:href="#i-export"/></svg></button>
   <span class="sep"></span>
@@ -157,6 +159,14 @@
 
 <div id="popover-shapes" class="panel pop" hidden><div id="shape-tools"></div></div>
 
+<div id="measure-panel" class="panel pop" hidden>
+  <div class="pop-title">Measure <button class="ib" id="ms-close" title="Close measuring" aria-label="Close">&times;</button></div>
+  <div class="seg" id="ms-mode"><button data-m="line" class="on">Line</button><button data-m="area">Area</button></div>
+  <label class="opt"><input type="checkbox" id="ms-free"> Freehand: trace a winding line or outline</label>
+  <div id="ms-out"></div>
+  <p class="hint" id="ms-hint"></p>
+  <div class="row-btns"><button class="btn" id="ms-undo">Undo</button><button class="btn" id="ms-clear">Clear</button><button class="btn primary" id="ms-save">Save to map</button></div>
+</div>
 <div id="gps-panel" class="panel pop" hidden>
   <div class="pop-title">GPS <span id="gps-badge" class="badge">Off</span></div>
   <div id="gps-warn" class="warn" hidden></div>
@@ -190,6 +200,7 @@
 <script src="js/app.js"></script>
 <script src="js/draw.js"></script>
 <script src="js/panels.js"></script>
+<script src="js/measure.js"></script>
 <script src="js/cloud.js"></script>
 </body>
 </html>

@@ -2,10 +2,10 @@
    App files: network first, so a new version shows as soon as it is online; the cached copy is used offline
    (or when the network takes more than 4 s).
    Queensland imagery tiles: cache-first from "gc-tiles" (filled by viewing or by "Save this area for offline use"). */
-var SHELL = 'gc-shell-v4'; // GeoCanvas 2026-10-27.4
+var SHELL = 'gc-shell-v5'; // GeoCanvas 2026-10-27.5
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
-  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/panels.js', 'js/cloud.js'];
+  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/panels.js', 'js/measure.js', 'js/cloud.js'];
 var TILE_HOST = 'spatial-img.information.qld.gov.au';
 var MAX_TILES = 6000;
 

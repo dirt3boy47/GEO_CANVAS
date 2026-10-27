@@ -427,7 +427,7 @@
   $('btn-gps').onclick = function () {
     var p = $('gps-panel');
     if (!p.hidden) { p.hidden = true; return; }
-    $('inspector').hidden = true; p.hidden = false; startGPS(); renderGpsData();
+    $('inspector').hidden = true; if (GC.measure && GC.measure.isOn()) GC.measure.close(); p.hidden = false; startGPS(); renderGpsData();
     if (gps.fix) map.setView([gps.fix.lat, gps.fix.lon], Math.max(map.getZoom(), 16));
   };
   $('gps-follow').onclick = function () {
