@@ -94,6 +94,7 @@
   }
   function load() {
     if (!on() || map.getZoom() < VECTOR_ZOOM) { if (feats.length) { feats = []; draw(); loadedBox = null; } if (on() && !map.hasLayer(tiles)) tiles.addTo(map); return; }
+    if (navigator.onLine === false) { if (!map.hasLayer(tiles)) tiles.addTo(map); return; } // offline: saved boundary tiles only
     var view = map.getBounds();
     if (loadedBox && loadedBox.contains(view)) { drawLabels(); return; }
     var box = view.pad(0.35), b = [box.getWest(), box.getSouth(), box.getEast(), box.getNorth()].map(function (v) { return v.toFixed(6); }).join(',');
@@ -205,5 +206,6 @@
   $('ref-cad').onchange = function () { setOn($('ref-cad').checked); if ($('ref-cad').checked && map.getZoom() < 14) GC.toast('Lot boundaries are on. Zoom in to see lot/plan labels; tap a lot for its details.'); };
   if (on()) setOn(true);
 
-  GC.cadastre = { on: on, setOn: setOn, identify: identify, find: find, snap: snap, esriToGeoJSON: esriToGeoJSON, BASE: BASE };
+  GC.cadastre = { on: on, setOn: setOn, identify: identify, find: find, snap: snap, esriToGeoJSON: esriToGeoJSON, BASE: BASE,
+    tiles: tiles, tileUrl: function (c) { return tiles.getTileUrl(c); } }; // offline maps save these tiles
 })(window);

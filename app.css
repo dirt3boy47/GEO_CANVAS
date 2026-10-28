@@ -177,6 +177,25 @@ body.no-sidebar #sidebar { display: none; }
 #shape-tools { display: flex; gap: 6px; }
 
 #gps-panel { top: calc(76px + var(--safe-t)); right: calc(10px + var(--safe-r)); width: 340px; }
+#snip { position: fixed; inset: 0; z-index: 1150; touch-action: none; cursor: crosshair; }
+#snip canvas { position: absolute; left: 0; top: 0; touch-action: none; }
+#snip-bar { position: absolute; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; white-space: nowrap; max-width: calc(100% - 20px); cursor: default; }
+#snip-bar .seg { margin: 0; }
+#snip-msg { font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) { #snip-bar { flex-wrap: wrap; white-space: normal; justify-content: center; } }
+#offline-panel { left: 50%; transform: translateX(-50%); bottom: calc(16px + var(--safe-b)); width: 360px; }
+#offline-panel .pop-title .ib { width: 34px; height: 34px; font-size: 24px; color: var(--muted); }
+#offline-panel input[type=text], #offline-panel select { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-solid); color: var(--ink); font-weight: 400; font-size: 15px; }
+#off-est { margin: 8px 6px; font-size: 13.5px; }
+#off-prog { margin: 8px 6px; font-size: 12.5px; color: var(--muted); }
+.off-bar { height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; margin-bottom: 5px; }
+.off-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.off-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; }
+.off-txt { flex: 1; min-width: 0; }
+.off-txt b, .off-txt small { display: block; }
+.off-txt small { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.off-row .btn { padding: 7px 10px; }
+.off-row .btn svg { width: 18px; height: 18px; }
 #measure-panel { top: calc(76px + var(--safe-t)); right: calc(10px + var(--safe-r)); width: 320px; }
 #measure-panel .pop-title .ib { width: 34px; height: 34px; font-size: 24px; color: var(--muted); }
 #ms-mode { display: flex; margin: 0 0 6px; }

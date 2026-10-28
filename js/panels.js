@@ -835,8 +835,8 @@
       '<label class="opt"><input type="checkbox" id="st-cross"' + (s.crosshair ? ' checked' : '') + '> Show centre crosshair</label>' +
       '<label class="field" style="margin:8px 0">Coordinate format<select id="st-fmt"><option value="dd">Decimal degrees</option><option value="dms">Degrees minutes seconds</option><option value="mga">MGA2020 grid (easting/northing)</option></select></label>' +
       '<div class="pop-title small">Team & cloud</div><div id="st-cloud"></div>' +
-      '<div class="pop-title small">Offline imagery</div><p class="hint" style="margin:0 0 6px">Saves Queensland aerial imagery for the area on screen (up to 4 zoom levels closer) so it shows without internet.</p>' +
-      '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Save this area for offline use</button><button class="btn" id="st-clear">Delete saved imagery</button></div><p class="hint" id="st-off-msg"></p>' +
+      '<div class="pop-title small">Offline maps</div><p class="hint" style="margin:0 0 6px">Select areas of the map to save, so imagery and lot boundaries show with no signal.</p>' +
+      '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Offline maps…</button></div>' +
       '<div class="pop-title small">Storage</div><p class="hint" id="st-store" style="margin:0">Checking…</p>' +
       '<div class="pop-title small">Version</div><p class="hint" style="margin:0">GeoCanvas ' + GC.VERSION + '</p>' +
       '<div class="pop-title small">Tips</div><p class="hint" style="margin:0">Add GeoCanvas to your Home Screen (Share › Add to Home Screen) so it opens full screen and Safari keeps its data. Back up projects regularly — clearing Safari website data deletes them.</p>' +
@@ -849,41 +849,13 @@
       q('#st-fmt').onchange = function () { s.coordFmt = q('#st-fmt').value; GC.saveSettings(); GC.updateHud(); };
       q('[data-a=ok]').onclick = close;
       if (GC.cloud) GC.cloud.renderSettings(q('#st-cloud'));
-      q('#st-offline').onclick = function () { saveOffline(q('#st-off-msg'), q('#st-offline')); };
-      q('#st-clear').onclick = function () { if (window.caches) caches.delete('gc-tiles').then(function () { q('#st-off-msg').textContent = 'Saved imagery deleted.'; }); };
+      q('#st-offline').onclick = function () { close(); GC.offline.open(); };
       var st = q('#st-store');
       var mem = Store.isMemoryOnly() ? 'Private browsing: projects are NOT kept after closing Safari. ' : '';
       if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(function (e) { st.textContent = mem + 'Using ' + (e.usage / 1048576).toFixed(1) + ' MB of about ' + Math.round(e.quota / 1048576) + ' MB available to GeoCanvas.' + (Store.persistent ? ' Storage is marked persistent.' : ''); }, function () { st.textContent = mem; });
       else st.textContent = mem || 'Storage details are not available in this browser.';
     });
   };
-  function tileXY(lat, lon, z) { var n = Math.pow(2, z), m = Geo.merc(lon, lat); return [Math.floor(m[0] * n), Math.floor(m[1] * n)]; }
-  function saveOffline(msg, btn) {
-    if (!window.caches) { msg.textContent = 'This browser cannot store imagery offline.'; return; }
-    var b = map.getBounds(), z0 = Math.max(10, Math.floor(map.getZoom())), z1 = Math.min(20, z0 + 4), urls = [];
-    for (var z = z0; z <= z1 && urls.length < 4000; z++) {
-      var a = tileXY(b.getNorth(), b.getWest(), z), c = tileXY(b.getSouth(), b.getEast(), z);
-      for (var x = a[0]; x <= c[0]; x++) for (var y = a[1]; y <= c[1]; y++) urls.push(GC.QLD_TILES.replace('{z}', z).replace('{x}', x).replace('{y}', y));
-    }
-    if (urls.length >= 4000) { msg.textContent = 'That area is too large (more than 4000 tiles). Zoom in further and try again.'; return; }
-    btn.disabled = true;
-    caches.open('gc-tiles').then(function (cache) {
-      var i = 0, ok = 0, fail = 0;
-      var next = function () {
-        if (i >= urls.length) return Promise.resolve();
-        var u = urls[i++];
-        return cache.match(u).then(function (hit) {
-          if (hit) { ok++; return; }
-          return fetch(u, { mode: 'cors' }).then(function (r) { if (!r.ok) throw new Error(); ok++; return cache.put(u, r); }).catch(function () { fail++; });
-        }).then(function () { msg.textContent = 'Saving imagery… ' + (ok + fail) + ' / ' + urls.length; return next(); });
-      };
-      return Promise.all([next(), next(), next(), next(), next(), next()]).then(function () {
-        btn.disabled = false;
-        msg.textContent = fail === urls.length ? 'The Queensland imagery service did not allow offline saving from this browser (or there is no internet).' : 'Saved ' + ok + ' imagery tiles (zoom ' + z0 + '–' + z1 + ')' + (fail ? ', ' + fail + ' failed' : '') + '. Choose “QLD aerial imagery” as the basemap when offline.';
-      });
-    }).catch(function () { btn.disabled = false; msg.textContent = 'Could not open offline storage.'; });
-  }
-
   // ======================= start-up =======================
   function storageNote() {
     var n = $('storage-note');
