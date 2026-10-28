@@ -230,6 +230,7 @@
         return;
       }
     }
+    if (GC.library && GC.library.identify(e.latlng)) return; // geology unit, tenement… when a library map is showing
     if (GC.cadastre && GC.cadastre.identify(e.latlng)) return; // a lot, when lot boundaries are on
     GC.closeInspector();
   };

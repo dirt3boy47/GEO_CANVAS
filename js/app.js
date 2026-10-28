@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.5' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.6' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -416,6 +416,8 @@
       v.group.addLayer(l.corners ? new GC.AffineImage(l.dataURL, l.corners, { pane: v.pn }) : L.imageOverlay(l.dataURL, l.bounds, { pane: v.pn, interactive: false }));
     } else if (l.kind === 'cad') {
       v.group.addLayer(new GC.CadLayer(l, { pane: v.pn }));
+    } else if (l.kind === 'service') {
+      if (GC.library) v.group.addLayer(GC.library.tileLayer(l, v.pn));
     } else if (l.kind === 'track') {
       (l.tracks || []).forEach(function (t) {
         if (!t.points.length) return;
@@ -441,7 +443,7 @@
     var b = null, add = function (lat, lon) { if (!isFinite(lat) || !isFinite(lon)) return; if (!b) b = L.latLngBounds([lat, lon], [lat, lon]); else b.extend([lat, lon]); };
     if (l.kind === 'drawing') l.items.forEach(function (el) { var m = Ink.mercBounds(el), a = Geo.unmerc(m[0], m[1]), c = Geo.unmerc(m[2], m[3]); add(a[1], a[0]); add(c[1], c[0]); });
     else if (l.kind === 'vector') { var bb = global.Importers.bounds(l.geojson); if (isFinite(bb[0])) { add(bb[1], bb[0]); add(bb[3], bb[2]); } }
-    else if (l.kind === 'raster' || l.kind === 'cad') { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
+    else if (l.kind === 'raster' || l.kind === 'cad' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
     else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); });
     return b;
@@ -459,9 +461,10 @@
     if (l.kind === 'track') { var d = 0, pts = 0; (l.tracks || []).forEach(function (t) { d += t.distance || 0; pts += t.points.length; }); return (l.tracks || []).length + ' track' + ((l.tracks || []).length === 1 ? '' : 's') + ' · ' + GC.fmtDist(d); }
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
     if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
+    if (l.kind === 'service') return 'online map · ' + l.service.source;
     return '';
   };
-  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD' };
+  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD', service: 'Map' };
   GC.kindLabel = function (l) { return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
 
   /** Inserts imported layers below the annotation layers by default. */
@@ -746,6 +749,8 @@
       html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
         '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
         (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
+    } else if (l.kind === 'service' && GC.library) {
+      html += GC.library.optionsHtml(l);
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
@@ -790,6 +795,7 @@
       el.querySelector('[data-a=export]').onclick = function () { close(); GC.openExport([l.id]); };
       if (q('[data-a=crs]')) q('[data-a=crs]').onclick = function () { close(); GC.changeCRS(l); };
       if (q('[data-a=georef]')) q('[data-a=georef]').onclick = function () { close(); GC.georef.edit(l); };
+      if (l.kind === 'service' && GC.library) GC.library.bindOptions(l, el);
       if (q('#lo-blend')) q('#lo-blend').onchange = function () { l.blend = q('#lo-blend').checked; GC.applyLayerState(); GC.markDirty(l.id); };
       if (q('#lo-text')) {
         var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };

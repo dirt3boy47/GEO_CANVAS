@@ -69,6 +69,7 @@ the old team's projects are still on the iPads that had them.
 | Placemark details | Tapping a feature opens a Google Earth style balloon: the KML description (HTML tables, links and photos inside the KMZ) or its BalloonStyle, the ExtendedData / shapefile attributes as a table, plus length/area and position. HTML from files is shown sandboxed (scripts never run). |
 | Projects | Saved automatically on the iPad (IndexedDB). Several projects, rename/duplicate/delete, backup and restore. Optional cloud sync between devices (see above). |
 | Offline | After the first visit the app works without internet. **Offline maps** (top bar, map-with-arrow icon) › Select an area: the map dims and you drag a box over the area, like a snipping tool, or choose Freehand and draw around it (e.g. along a pipeline corridor, which saves far fewer tiles than a box). Pick the detail (suburb → maximum) and whether to include lot boundaries; the size is shown before downloading. Queensland aerial imagery and QLD cadastre boundaries are saved on the device (never trimmed) and listed with Show / Update / Delete. With no internet the map switches to the saved imagery by itself and enlarges it beyond the saved detail. Esri/OSM basemaps can’t be saved (their terms forbid bulk downloading). |
+| Map library | Layers › “Map library”: free map services from Geoscience Australia and the Queensland Government (surface geology, topographic base map, QLD detailed/regional/state geology, mineral tenements…). Featured picks, browse each agency’s catalogue (read live from their ArcGIS servers, so new maps appear by themselves), or search both. Add a map to the project: ⋯ shows its legend and lets you pick sub-layers; tap the map to see the rock unit / tenement at that spot. Offline maps saves the showing library maps with the area. Each map is licensed by its publisher (mostly CC BY 4.0; shown in its details). |
 
 ## Things to know
 
@@ -91,6 +92,7 @@ js/ink.js                    georeferenced ink engine (same model as the native 
 js/importers.js              KML/KMZ, shapefile/DBF, GeoJSON, GPX, GeoTIFF readers
 js/exporters.js              KML, GeoJSON, GPX, GeoTIFF and world-file writers
 js/cad.js                    DXF reader: CAD drawings as reference layers
+js/library.js                Map library: Geoscience Australia / QLD map services, legend, identify
 js/offline.js                offline maps: snip an area, save its imagery and lot-boundary tiles
 js/store.js                  IndexedDB project storage
 js/cloud.js                  cloud sync: three-way merge with the team's copy in Cloudflare D1

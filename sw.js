@@ -1,12 +1,12 @@
 /* GeoCanvas service worker: the app works offline after the first visit.
    App files: network first, so a new version shows as soon as it is online; the cached copy is used offline
    (or when the network takes more than 4 s).
-   Queensland imagery and lot-boundary tiles: saved offline areas ("gc-offline", never trimmed) first; imagery seen while
+   Queensland imagery, lot-boundary and Map library tiles: saved offline areas ("gc-offline", never trimmed) first; imagery seen while
    browsing is kept in "gc-tiles" (trimmed to the newest tiles). Downloads for offline areas (cache: no-store) pass straight through. */
-var SHELL = 'gc-shell-v11'; // GeoCanvas 2026-10-28.5
+var SHELL = 'gc-shell-v12'; // GeoCanvas 2026-10-28.6
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
-  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/cad.js', 'js/offline.js', 'js/cloud.js',
+  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/cad.js', 'js/library.js', 'js/offline.js', 'js/cloud.js',
   'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js'];
 var TILE_HOST = 'spatial-img.information.qld.gov.au', LOT_HOST = 'spatial-gis.information.qld.gov.au';
 var MAX_TILES = 6000;
@@ -37,7 +37,8 @@ self.addEventListener('fetch', function (e) {
     }));
     return;
   }
-  var img = url.hostname === TILE_HOST && /\/tile\//.test(url.pathname), lots = url.hostname === LOT_HOST && /\/MapServer\/export$/.test(url.pathname);
+  // map images from ArcGIS servers (QLD imagery, lot boundaries, Map library services): saved offline areas first
+  var img = url.hostname === TILE_HOST && /\/tile\//.test(url.pathname), lots = !img && /\/(MapServer|ImageServer)\/(export|exportImage|tile\/)/.test(url.pathname);
   if ((img || lots) && req.cache !== 'no-store') {
     e.respondWith(caches.open('gc-offline').then(function (o) { return o.match(req.url); }).then(function (saved) {
       if (saved) return saved;

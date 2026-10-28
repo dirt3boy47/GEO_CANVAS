@@ -7,7 +7,7 @@
   'use strict';
   var GC = global.GC, Geo = global.Geo, map = GC.map, $ = GC.$, esc = GC.esc;
   var CACHE = 'gc-offline', KEY = 'gc.offline', ZMIN = 10, MAX_TILES = 40000, BIG = 15000;
-  var EST = { img: 22000, lots: 5000 }; // typical bytes per tile, for the estimate before downloading
+  var EST = { img: 22000, lots: 5000, svc: 15000 }; // typical bytes per tile, for the estimate before downloading
   var DETAIL = [[17, 'Suburb (about 1 m)'], [18, 'Street (about 0.5 m)'], [19, 'Site (about 0.25 m)'], [20, 'Maximum (about 0.15 m)']];
 
   // ---------- saved areas ----------
@@ -61,11 +61,18 @@
         r.spans.forEach(function (sp) { for (var x = sp[0]; x <= sp[1]; x++) out.push(SOURCES[s](z, x, r.y)); });
       });
     });
+    // map services from the Map library (geology, topography…), up to their own deepest zoom
+    if (GC.library) (a.services || []).forEach(function (s) {
+      for (var z = ZMIN; z <= Math.min(a.zmax, s.maxNative); z++) tileRows(a.poly, z).forEach(function (r) {
+        r.spans.forEach(function (sp) { for (var x = sp[0]; x <= sp[1]; x++) out.push(GC.library.tileUrl(s, z, x, r.y)); });
+      });
+    });
     return out;
   }
   function estimate(a) {
-    var n = countTiles(a.poly, ZMIN, a.zmax), lots = a.lots ? n : 0;
-    return { tiles: n + lots, bytes: n * EST.img + lots * EST.lots };
+    var n = countTiles(a.poly, ZMIN, a.zmax), lots = a.lots ? n : 0, svc = 0;
+    (a.services || []).forEach(function (s) { svc += countTiles(a.poly, ZMIN, Math.min(a.zmax, s.maxNative)); });
+    return { tiles: n + lots + svc, bytes: n * EST.img + lots * EST.lots + svc * EST.svc };
   }
   function mb(b) { return b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1e6)) + ' MB'; }
   function num(n) { return n.toLocaleString(); }
@@ -131,7 +138,7 @@
   var switched = null;
   function savedZoom() { var z = 0; areas().forEach(function (a) { if (a.saved) z = Math.max(z, a.zmax); }); return z; }
   function tune(l) {
-    if (!(l instanceof L.TileLayer) || !(l._url === GC.QLD_TILES || (GC.cadastre && l === GC.cadastre.tiles))) return;
+    if (!(l instanceof L.TileLayer) || !(l._url === GC.QLD_TILES || l._gcService || (GC.cadastre && l === GC.cadastre.tiles))) return;
     if (l._gcNative == null) l._gcNative = l.options.maxNativeZoom;
     var z = savedZoom(), want = navigator.onLine === false && z ? Math.min(l._gcNative, z) : l._gcNative;
     if (l.options.maxNativeZoom !== want) { l.options.maxNativeZoom = want; if (l._map) l.redraw(); }
@@ -227,11 +234,13 @@
   function showSelection(poly, mode) {
     var n = areas().length + 1, zDefault = 19;
     var a = { id: 'oa' + Date.now().toString(36), name: 'Offline area ' + n, poly: poly, shape: mode, zmax: zDefault, lots: true, created: Date.now() };
+    var svcs = GC.library ? GC.library.visibleServices() : []; // maps from the Map library that are showing
     var panel = document.createElement('div'); panel.id = 'offline-panel'; panel.className = 'panel pop';
     panel.innerHTML = '<div class="pop-title">Save for offline use <button class="ib" data-a="x" title="Close" aria-label="Close">&times;</button></div>' +
       '<label class="field">Name<input type="text" id="off-name"></label>' +
       '<label class="field">Detail<select id="off-z">' + DETAIL.map(function (d) { return '<option value="' + d[0] + '"' + (d[0] === zDefault ? ' selected' : '') + '>' + d[1] + '</option>'; }).join('') + '</select></label>' +
       '<label class="opt"><input type="checkbox" id="off-lots" checked> Lot boundaries (QLD cadastre)</label>' +
+      svcs.map(function (s, i) { return '<label class="opt"><input type="checkbox" data-svc="' + i + '" checked> ' + esc(s.name) + '</label>'; }).join('') +
       '<div id="off-est"></div><div id="off-prog" hidden><div class="off-bar"><i></i></div><span></span></div>' +
       '<p class="hint">Saves Queensland aerial imagery (© State of Queensland, CC BY 4.0) on this device. Other basemaps can’t be saved: their terms don’t allow it.</p>' +
       '<div class="row-btns"><button class="btn" data-a="redraw">Redraw</button><button class="btn" data-a="cancel">Cancel</button><button class="btn primary" data-a="go">Download</button></div>';
@@ -242,7 +251,8 @@
     q('#off-name').value = a.name;
     var est = null;
     var update = function () {
-      a.zmax = +q('#off-z').value; a.lots = q('#off-lots').checked; est = estimate(a);
+      a.zmax = +q('#off-z').value; a.lots = q('#off-lots').checked;
+      a.services = svcs.filter(function (s, i) { return q('[data-svc="' + i + '"]').checked; }); est = estimate(a);
       var too = est.tiles > MAX_TILES;
       q('#off-est').innerHTML = too ? '<b class="fail">Too big: ' + num(est.tiles) + ' tiles.</b> Choose less detail or a smaller area.' :
         '<b>About ' + mb(est.bytes) + '</b> · ' + num(est.tiles) + ' tiles' + (est.tiles > BIG ? '<br>Large download: use Wi-Fi.' : '');
@@ -251,7 +261,7 @@
         if (s.quota && s.quota - s.usage < est.bytes * 1.2) q('#off-est').innerHTML += '<br><b class="fail">Not enough storage left for GeoCanvas (' + mb(s.quota - s.usage) + ' free).</b>';
       }, function () {});
     };
-    q('#off-z').onchange = update; q('#off-lots').onchange = update; update();
+    q('#off-z').onchange = update; q('#off-lots').onchange = update; [].forEach.call(panel.querySelectorAll('[data-svc]'), function (c) { c.onchange = update; }); update();
     var close = function () { if (job) return; clearSelection(); };
     q('[data-a=x]').onclick = close; q('[data-a=cancel]').onclick = function () { if (job) { job.cancel(); return; } close(); };
     q('[data-a=redraw]').onclick = function () { startSnip(mode); };
@@ -301,7 +311,7 @@
     var label = function (z) { var d = DETAIL.filter(function (x) { return x[0] === z; })[0]; return d ? d[1].replace(/ \(.*/, '') : 'zoom ' + z; };
     var rows = list.map(function (a) {
       var when = new Date(a.updated || a.created).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-      return '<div class="off-row" data-id="' + esc(a.id) + '"><div class="off-txt"><b>' + esc(a.name) + '</b><small>' + label(a.zmax) + ' detail' + (a.lots ? ' + lot boundaries' : '') +
+      return '<div class="off-row" data-id="' + esc(a.id) + '"><div class="off-txt"><b>' + esc(a.name) + '</b><small>' + label(a.zmax) + ' detail' + (a.lots ? ' + lot boundaries' : '') + ((a.services || []).length ? ' + ' + a.services.map(function (s) { return esc(s.name); }).join(', ') : '') +
         ' · ' + num(a.saved || 0) + ' tiles · about ' + mb(a.bytes || 0) + ' · ' + when + (a.complete ? '' : ' · <span class="fail">incomplete</span>') + '</small></div>' +
         '<button class="btn" data-a="show">Show</button><button class="btn" data-a="upd">' + (a.complete ? 'Update' : 'Resume') + '</button><button class="btn" data-a="del" title="Delete" aria-label="Delete"><svg><use xlink:href="#i-trash"/></svg></button></div>';
     }).join('');
