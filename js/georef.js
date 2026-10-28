@@ -239,5 +239,5 @@
   $('gr-blend').onchange = function () { S.blend = $('gr-blend').checked; refresh(); };
   $('gr-op').oninput = function () { S.opacity = $('gr-op').value / 100; $('gr-opv').textContent = $('gr-op').value + '%'; refresh(); };
 
-  GC.georef = { start: start, edit: edit, openPlan: open, click: click, isOn: function () { return !!S; }, fit: fit, planMap: function () { return planMap; }, isPlan: function (name) { return /\.(pdf|png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(name); } };
+  GC.georef = { start: start, edit: edit, openPlan: open, loadPdfJs: loadPdfJs, click: click, isOn: function () { return !!S; }, fit: fit, planMap: function () { return planMap; }, isPlan: function (name) { return /\.(pdf|png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(name); } };
 })(window);

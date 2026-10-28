@@ -86,6 +86,13 @@
       files = files.filter(function (f) { return !/\.dwg$/i.test(f.name); });
       if (!files.length) return Promise.resolve();
     }
+    // PDFs: GeoPDF maps place themselves (js/geopdf.js); other PDFs are plans placed by hand.
+    var pdfs = GC.geopdf && !(opts && opts.plainPdf) ? files.filter(function (f) { return /\.pdf$/i.test(f.name); }) : [];
+    if (pdfs.length) {
+      var rest = files.filter(function (f) { return pdfs.indexOf(f) < 0; }), plain = [];
+      return pdfs.reduce(function (chain, f) { return chain.then(function () { return GC.geopdf.importFile(f).then(function (done) { if (!done) plain.push(f); }); }); }, Promise.resolve())
+        .then(function () { var left = plain.concat(rest); return left.length ? importFiles(left, Object.assign({}, opts || {}, { plainPdf: true })) : null; });
+    }
     // Plans (PDF or images that are not GeoTIFFs) open in the georeferencer.
     var plans = GC.georef ? files.filter(function (f) { return GC.georef.isPlan(f.name); }) : [];
     if (plans.length) {

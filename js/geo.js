@@ -100,6 +100,12 @@
     var ga = '+proj=lcc +lat_0=0 +lon_0=134 +lat_1=-18 +lat_2=-36 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs';
     add(3112, 'GDA94 / Geoscience Australia Lambert', ga + ' ' + GDA94_TOWGS);
     add(7845, 'GDA2020 / GA LCC', ga + ' +towgs84=0,0,0,0,0,0,0');
+    var vic = '+proj=lcc +lat_0=-37 +lon_0=145 +lat_1=-36 +lat_2=-38 +x_0=2500000 +y_0=2500000 +ellps=GRS80 +units=m +no_defs';
+    add(3111, 'GDA94 / Vicgrid', vic + ' ' + GDA94_TOWGS);
+    add(7899, 'GDA2020 / Vicgrid', vic + ' +towgs84=0,0,0,0,0,0,0');
+    var nsw = '+proj=lcc +lat_0=-33.25 +lon_0=147 +lat_1=-30.75 +lat_2=-35.75 +x_0=9300000 +y_0=4500000 +ellps=GRS80 +units=m +no_defs';
+    add(3308, 'GDA94 / NSW Lambert', nsw + ' ' + GDA94_TOWGS);
+    add(8058, 'GDA2020 / NSW Lambert', nsw + ' +towgs84=0,0,0,0,0,0,0');
   }
 
   function crsLabel(code) { return CRS[code] ? CRS[code].name + ' (EPSG:' + code + ')' : 'EPSG:' + code; }
@@ -143,6 +149,8 @@
       }
       if (/MERCATOR_AUXILIARY|PSEUDO.?MERCATOR/.test(N)) return { code: 3857 };
       if (/ALBERS/.test(N) && /132/.test(t)) return { code: datum2020 ? 9473 : 3577 };
+      if (/VICGRID/.test(N) || (/LAMBERT/.test(N) && /145/.test(t) && /-36/.test(t) && /-38/.test(t))) return { code: datum2020 ? 7899 : 3111 };
+      if (/NSW_LAMBERT/.test(N) || (/LAMBERT/.test(N) && /147/.test(t) && /-30\.75/.test(t))) return { code: datum2020 ? 8058 : 3308 };
     } else if (/^GEOG/i.test(t)) {
       if (datum2020) return { code: 7844 };
       if (datum94) return { code: 4283 };

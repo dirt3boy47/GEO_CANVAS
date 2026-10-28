@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.6' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.7' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -180,7 +180,7 @@
       v.pane.style.zIndex = String(210 + Math.min(i, 380));
       v.pane.style.display = l.visible ? '' : 'none';
       v.pane.style.opacity = String(l.opacity == null ? 1 : l.opacity);
-      v.pane.style.mixBlendMode = l.kind === 'raster' && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
+      v.pane.style.mixBlendMode = (l.kind === 'raster' || l.kind === 'geopdf') && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
     });
   };
 
@@ -311,6 +311,7 @@
       img.style.position = 'absolute'; img.style.left = '0'; img.style.top = '0';
       img.style.webkitTransformOrigin = img.style.transformOrigin = '0 0'; img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
       img.onload = function () { self._w = img.naturalWidth; self._h = img.naturalHeight; img.style.width = self._w + 'px'; img.style.height = self._h + 'px'; self._reset(); };
+      if (this.options.clip) img.style.webkitClipPath = img.style.clipPath = 'polygon(' + this.options.clip.map(function (p) { return p[0] + '% ' + p[1] + '%'; }).join(',') + ')'; // GeoPDF: only the map frame
       img.alt = ''; img.src = this._url;
       this.getPane().appendChild(img);
     },
@@ -323,7 +324,7 @@
       var m = 'matrix(' + [(b.x - a.x) / w, (b.y - a.y) / w, (c.x - a.x) / h, (c.y - a.y) / h, a.x, a.y].join(',') + ')';
       this._img.style.webkitTransform = this._img.style.transform = m;
     },
-    _reset: function () { var m = this._map; if (m) this._apply(this._corners.map(function (ll) { return m.latLngToLayerPoint(ll); })); },
+    _reset: function () { var m = this._map; if (m) { var o = m.getPixelOrigin(); this._apply(this._corners.map(function (ll) { return m.project(L.latLng(ll))._subtract(o); })); } }, // unrounded: small pieces stay exact
     _animateZoom: function (e) { var m = this._map; this._apply(this._corners.map(function (ll) { return m._latLngToNewLayerPoint(L.latLng(ll), e.zoom, e.center); })); }
   });
 
@@ -416,6 +417,8 @@
       v.group.addLayer(l.corners ? new GC.AffineImage(l.dataURL, l.corners, { pane: v.pn }) : L.imageOverlay(l.dataURL, l.bounds, { pane: v.pn, interactive: false }));
     } else if (l.kind === 'cad') {
       v.group.addLayer(new GC.CadLayer(l, { pane: v.pn }));
+    } else if (l.kind === 'geopdf') {
+      (l.pieces || []).forEach(function (p) { v.group.addLayer(new GC.AffineImage(p.url, p.c, { pane: v.pn, clip: p.clip })); });
     } else if (l.kind === 'service') {
       if (GC.library) v.group.addLayer(GC.library.tileLayer(l, v.pn));
     } else if (l.kind === 'track') {
@@ -443,7 +446,7 @@
     var b = null, add = function (lat, lon) { if (!isFinite(lat) || !isFinite(lon)) return; if (!b) b = L.latLngBounds([lat, lon], [lat, lon]); else b.extend([lat, lon]); };
     if (l.kind === 'drawing') l.items.forEach(function (el) { var m = Ink.mercBounds(el), a = Geo.unmerc(m[0], m[1]), c = Geo.unmerc(m[2], m[3]); add(a[1], a[0]); add(c[1], c[0]); });
     else if (l.kind === 'vector') { var bb = global.Importers.bounds(l.geojson); if (isFinite(bb[0])) { add(bb[1], bb[0]); add(bb[3], bb[2]); } }
-    else if (l.kind === 'raster' || l.kind === 'cad' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
+    else if (l.kind === 'raster' || l.kind === 'cad' || l.kind === 'geopdf' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
     else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); });
     return b;
@@ -462,9 +465,10 @@
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
     if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
     if (l.kind === 'service') return 'online map · ' + l.service.source;
+    if (l.kind === 'geopdf') return 'map sheet · ' + l.crs;
     return '';
   };
-  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD', service: 'Map' };
+  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD', service: 'Map', geopdf: 'GeoPDF' };
   GC.kindLabel = function (l) { return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
 
   /** Inserts imported layers below the annotation layers by default. */
@@ -749,6 +753,9 @@
       html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
         '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
         (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
+    } else if (l.kind === 'geopdf') {
+      html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (map lines and colours show over the imagery)</label>' +
+        '<p class="hint">Placed from the GeoPDF’s own coordinates (' + GC.esc(l.encoding) + ') · ' + GC.esc(l.crs) + ' · drawn at ' + l.dpi + ' dpi' + (l.datum === 'gda94' ? ' · GDA94 converted to GDA2020' : '') + (l.rms != null ? ' · control points agree within ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(1) + ' m') : '') + '. Margins and legend are left off the map.</p>';
     } else if (l.kind === 'service' && GC.library) {
       html += GC.library.optionsHtml(l);
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
