@@ -181,7 +181,9 @@
       if (bb.length < 4 || gp.length < 6) return;
       if (!bounds.length) bounds = [0, 0, 0, 1, 1, 1, 1, 0];
       if (!lp.length) lp = bounds;
-      var x0 = Math.min(bb[0], bb[2]), x1 = Math.max(bb[0], bb[2]), y0 = Math.min(bb[1], bb[3]), y1 = Math.max(bb[1], bb[3]);
+      // The unit square runs from the BBox's first corner to its second, in the order written (as GDAL/QGIS read it):
+      // Vicmap/ArcGIS write [left top right bottom], so there y runs downwards. Sorting the corners would flip such maps.
+      var x0 = bb[0], y0 = bb[1], x1 = bb[2], y1 = bb[3];
       var P = function (u, w) { return [x0 + u * (x1 - x0), y0 + w * (y1 - y0)]; };
       var gcs = pdf.res(m.GCS) || {}, wkt = typeof pdf.res(gcs.WKT) === 'string' ? pdf.res(gcs.WKT) : '', epsg = pdf.res(gcs.EPSG);
       var pts = [];
@@ -192,8 +194,8 @@
         pts.push({ x: pp[0], y: pp[1], lon: lon, lat: lat });
       }
       var frame = []; for (i = 0; i + 1 < bounds.length; i += 2) frame.push(P(bounds[i], bounds[i + 1]));
-      var area = (x1 - x0) * (y1 - y0);
-      if (!best || area > best.area) best = { kind: 'ISO 32000', area: area, pts: pts, frame: frame, datum: datumOf(wkt, epsg), crs: crsName(wkt, epsg) };
+      var area = Math.abs((x1 - x0) * (y1 - y0));
+      if (!best || area > best.area) best = { kind: 'ISO 32000', area: area, pts: pts, frame: frame, mirrorY: y0 + y1, datum: datumOf(wkt, epsg), crs: crsName(wkt, epsg) };
     });
     return best;
   }
@@ -271,6 +273,14 @@
     pts.forEach(function (p) { var r = [1, p.x - mx, p.y - my]; for (var i = 0; i < 3; i++) { be[i] += r[i] * p.e; bn[i] += r[i] * p.n; for (var j = 0; j < 3; j++) A[i][j] += r[i] * r[j]; } });
     var ae = solve3(A, be), an = solve3(A, bn);
     if (!ae || !an) throw new Error('The map’s control points are in a line, so it cannot be placed.');
+    // A real map is never a mirror image (page up/right ↔ north/east keep their turn). If the control points say otherwise,
+    // the producer counted the unit square the other way up: read it upside down once and fit again.
+    if (ae[1] * an[2] - ae[2] * an[1] < 0 && g.mirrorY != null && !g.mirrored) {
+      g.mirrored = true;
+      g.pts.forEach(function (p) { p.y = g.mirrorY - p.y; });
+      g.frame = g.frame.map(function (q) { return [q[0], g.mirrorY - q[1]]; });
+      return transform(g);
+    }
     var plane = function (x, y) { x -= mx; y -= my; return [ae[0] + ae[1] * x + ae[2] * y, an[0] + an[1] * x + an[2] * y]; };
     var ss = 0; pts.forEach(function (p) { var q = plane(p.x, p.y); ss += Math.pow(q[0] - p.e, 2) + Math.pow(q[1] - p.n, 2); });
     return { f: function (x, y) { var q = plane(x, y); return st.inv(q[0], q[1]); }, rms: pts.length > 3 ? Math.sqrt(ss / pts.length) : null, n: pts.length,
