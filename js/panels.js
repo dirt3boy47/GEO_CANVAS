@@ -74,6 +74,18 @@
   };
 
   function importFiles(files, opts) {
+    // DXF drawings become reference layers (js/cad.js), one at a time.
+    var dxfs = GC.cad ? files.filter(function (f) { return /\.dxf$/i.test(f.name); }) : [];
+    if (dxfs.length) {
+      files = files.filter(function (f) { return dxfs.indexOf(f) < 0; });
+      dxfs.reduce(function (chain, f) { return chain.then(function () { return GC.cad.importDxf(f); }); }, Promise.resolve());
+      if (!files.length) return Promise.resolve();
+    }
+    if (files.some(function (f) { return /\.dwg$/i.test(f.name); })) {
+      GC.toast('DWG files can’t be opened directly. In CAD use File › Save As › DXF (Civil 3D: Export to AutoCAD first), then import the DXF.', 'warn', 10000);
+      files = files.filter(function (f) { return !/\.dwg$/i.test(f.name); });
+      if (!files.length) return Promise.resolve();
+    }
     // Plans (PDF or images that are not GeoTIFFs) open in the georeferencer.
     var plans = GC.georef ? files.filter(function (f) { return GC.georef.isPlan(f.name); }) : [];
     if (plans.length) {

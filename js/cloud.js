@@ -37,7 +37,7 @@
   // Imported GIS geometry is stored as its own blob, so showing/hiding placemarks or restyling re-sends only a few bytes.
   function geoHash(g) { var h = gcache.get(g); if (!h) { h = hash(JSON.stringify(g)); gcache.set(g, h); } return h; }
   // Plan and GeoTIFF images likewise: changing opacity must not re-send the picture.
-  var BIG = { vector: 'geojson', raster: 'dataURL' }, strHash = {};
+  var BIG = { vector: 'geojson', raster: 'dataURL', cad: 'cad' }, strHash = {};
   function bigHash(l) {
     var v = l[BIG[l.kind]]; if (v == null) return null;
     if (typeof v !== 'string') return geoHash(v);
@@ -187,7 +187,7 @@
         var o = JSON.parse(txt), l = o.props;
         if (o.geo) {
           var field = BIG[l.kind] || 'geojson';
-          return (geoIndex[o.geo] != null ? Promise.resolve(geoIndex[o.geo]) : getBlob(p.id, o.geo).then(function (t) { return field === 'geojson' ? JSON.parse(t) : t; })).then(function (g) { l[field] = g; pre.remote[lid] = l; });
+          return (geoIndex[o.geo] != null ? Promise.resolve(geoIndex[o.geo]) : getBlob(p.id, o.geo).then(function (t) { return field === 'dataURL' ? t : JSON.parse(t); })).then(function (g) { l[field] = g; pre.remote[lid] = l; });
         }
         if (!o.coll) { pre.remote[lid] = l; return; }
         var parts = o.packs.map(function (ph) {

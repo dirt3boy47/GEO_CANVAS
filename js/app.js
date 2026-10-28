@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.3' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.4' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -327,6 +327,60 @@
     _animateZoom: function (e) { var m = this._map; this._apply(this._corners.map(function (ll) { return m._latLngToNewLayerPoint(L.latLng(ll), e.zoom, e.center); })); }
   });
 
+  /** A CAD reference drawing (kind "cad"), drawn on its own canvas: lines in CAD colours, text scaled with the map
+      (hidden when too small to read). Only what is on screen is drawn; redrawn when the map stops moving. */
+  GC.CadLayer = L.Layer.extend({
+    initialize: function (l, options) { this._l = l; L.setOptions(this, options); },
+    onAdd: function (map) {
+      this._cv = L.DomUtil.create('canvas', 'gc-cad');
+      this._cv.style.position = 'absolute'; this._cv.style.pointerEvents = 'none';
+      this.getPane().appendChild(this._cv);
+      this._prep(); this._draw();
+    },
+    onRemove: function () { L.DomUtil.remove(this._cv); },
+    getEvents: function () { return { moveend: this._draw, zoomstart: this._hide, resize: this._draw, viewreset: this._draw }; },
+    _hide: function () { this._cv.style.visibility = 'hidden'; },
+    _prep: function () { // mercator coordinates and bounding boxes, once
+      var c = this._l.cad;
+      this._lines = c.lines.map(function (a) {
+        var n = (a.length - 1) / 2, m = new Float64Array(n * 2), b = [Infinity, Infinity, -Infinity, -Infinity];
+        for (var k = 0; k < n; k++) { var q = Geo.merc(a[1 + 2 * k], a[2 + 2 * k]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
+        return { c: a[0], m: m, b: b };
+      });
+      this._texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7] }; });
+    },
+    _draw: function () {
+      var map = this._map; if (!map) return;
+      var l = this._l, size = map.getSize(), pad = 0.3, w = Math.round(size.x * (1 + 2 * pad)), h = Math.round(size.y * (1 + 2 * pad)), dpr = Math.min(2, global.devicePixelRatio || 1);
+      var tl = map.containerPointToLayerPoint([-size.x * pad, -size.y * pad]).round(), cv = this._cv;
+      L.DomUtil.setPosition(cv, tl);
+      cv.width = w * dpr; cv.height = h * dpr; cv.style.width = w + 'px'; cv.style.height = h + 'px'; cv.style.visibility = '';
+      var x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+      var ws = 256 * Math.pow(2, map.getZoom()), o = map.getPixelOrigin(), ox = o.x + tl.x, oy = o.y + tl.y;
+      var vb = [ox / ws, oy / ws, (ox + w) / ws, (oy + h) / ws], colors = l.cad.colors, mono = l.mono;
+      x.lineWidth = 1.4; x.lineJoin = 'round'; x.lineCap = 'round';
+      var byColor = {};
+      this._lines.forEach(function (ln) { if (ln.b[2] < vb[0] || ln.b[0] > vb[2] || ln.b[3] < vb[1] || ln.b[1] > vb[3]) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
+      Object.keys(byColor).forEach(function (ci) {
+        x.strokeStyle = mono || colors[ci]; x.beginPath();
+        byColor[ci].forEach(function (ln) { var m = ln.m; x.moveTo(m[0] * ws - ox, m[1] * ws - oy); for (var k = 2; k < m.length; k += 2) x.lineTo(m[k] * ws - ox, m[k + 1] * ws - oy); });
+        x.stroke();
+      });
+      if (l.showText === false || !this._texts.length) return;
+      var mpp = Geo.metersPerPixel(map.getZoom(), map.getCenter().lat);
+      this._texts.forEach(function (t) {
+        var px = t.h / mpp; if (px < 5 || px > 600) return;
+        var sx = t.m[0] * ws - ox, sy = t.m[1] * ws - oy; if (sx < -500 || sy < -500 || sx > w + 500 || sy > h + 500) return;
+        var rows = t.s.split('\n'); x.save(); x.translate(sx, sy); x.rotate(-t.r * Math.PI / 180);
+        x.font = px.toFixed(1) + 'px -apple-system, Helvetica, Arial, sans-serif'; x.fillStyle = mono || colors[t.c];
+        x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 2;
+        var lh = px * 1.35, top = -(1 - t.ay) * (rows.length - 1) * lh; // top-attached text flows down from its anchor
+        rows.forEach(function (row, i) { var tw = x.measureText(row).width; x.fillText(row, -t.ax * tw, top + i * lh + (t.ay === 1 ? px * 0.8 : t.ay === 0.5 ? px * 0.35 : 0)); });
+        x.restore();
+      });
+    }
+  });
+
   /** (Re)creates the Leaflet layers of any layer. */
   GC.renderLayer = function (l) {
     var v = ensureView(l);
@@ -360,6 +414,8 @@
       v.group.addLayer(gj);
     } else if (l.kind === 'raster') {
       v.group.addLayer(l.corners ? new GC.AffineImage(l.dataURL, l.corners, { pane: v.pn }) : L.imageOverlay(l.dataURL, l.bounds, { pane: v.pn, interactive: false }));
+    } else if (l.kind === 'cad') {
+      v.group.addLayer(new GC.CadLayer(l, { pane: v.pn }));
     } else if (l.kind === 'track') {
       (l.tracks || []).forEach(function (t) {
         if (!t.points.length) return;
@@ -385,7 +441,7 @@
     var b = null, add = function (lat, lon) { if (!isFinite(lat) || !isFinite(lon)) return; if (!b) b = L.latLngBounds([lat, lon], [lat, lon]); else b.extend([lat, lon]); };
     if (l.kind === 'drawing') l.items.forEach(function (el) { var m = Ink.mercBounds(el), a = Geo.unmerc(m[0], m[1]), c = Geo.unmerc(m[2], m[3]); add(a[1], a[0]); add(c[1], c[0]); });
     else if (l.kind === 'vector') { var bb = global.Importers.bounds(l.geojson); if (isFinite(bb[0])) { add(bb[1], bb[0]); add(bb[3], bb[2]); } }
-    else if (l.kind === 'raster') { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
+    else if (l.kind === 'raster' || l.kind === 'cad') { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
     else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); });
     return b;
@@ -402,9 +458,10 @@
     if (l.kind === 'raster') return 'Image';
     if (l.kind === 'track') { var d = 0, pts = 0; (l.tracks || []).forEach(function (t) { d += t.distance || 0; pts += t.points.length; }); return (l.tracks || []).length + ' track' + ((l.tracks || []).length === 1 ? '' : 's') + ' · ' + GC.fmtDist(d); }
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
+    if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
     return '';
   };
-  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints' };
+  var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD' };
   GC.kindLabel = function (l) { return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
 
   /** Inserts imported layers below the annotation layers by default. */
@@ -685,6 +742,10 @@
         '<label class="field">Label features by<select id="lo-label"><option value="">No labels</option>' + fields.map(function (f) { return '<option' + (f === l.labelField ? ' selected' : '') + '>' + GC.esc(f) + '</option>'; }).join('') + '</select></label>';
     } else if (l.kind === 'raster') {
       html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (plan lines show over the imagery)</label>' + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
+    } else if (l.kind === 'cad') {
+      html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+        '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
+        (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
@@ -730,6 +791,12 @@
       if (q('[data-a=crs]')) q('[data-a=crs]').onclick = function () { close(); GC.changeCRS(l); };
       if (q('[data-a=georef]')) q('[data-a=georef]').onclick = function () { close(); GC.georef.edit(l); };
       if (q('#lo-blend')) q('#lo-blend').onchange = function () { l.blend = q('#lo-blend').checked; GC.applyLayerState(); GC.markDirty(l.id); };
+      if (q('#lo-text')) {
+        var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };
+        q('#lo-text').onchange = function () { l.showText = q('#lo-text').checked; cadRedraw(); };
+        q('#lo-mono').onchange = function () { if (q('#lo-mono').checked) l.mono = q('#lo-monoc').value; else delete l.mono; cadRedraw(); };
+        q('#lo-monoc').oninput = function () { if (q('#lo-mono').checked) { l.mono = q('#lo-monoc').value; cadRedraw(); } };
+      }
       el.querySelector('[data-a=del]').onclick = function () {
         close();
         var what = l.kind === 'drawing' ? l.items.length + ' drawn items' : GC.layerCount(l);

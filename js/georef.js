@@ -147,7 +147,7 @@
     var pm = L.marker([-q.v, q.u], { draggable: true, icon: numIcon(i + 1, 'done') }).addTo(planMap);
     pm.on('dragend', function () { var ll = pm.getLatLng(); q.u = ll.lng; q.v = -ll.lat; refresh(); });
     var mm = L.marker(q.ll, { draggable: true, icon: numIcon(i + 1, 'done'), zIndexOffset: 2000 }).addTo(map);
-    mm.on('dragend', function () { var ll = mm.getLatLng(), s = GC.cadastre && GC.cadastre.snap(ll); if (s) mm.setLatLng(s); q.ll = s || ll; refresh(); });
+    mm.on('dragend', function () { var ll = mm.getLatLng(), s = (GC.cadastre && GC.cadastre.snap(ll)) || (GC.cad && GC.cad.snap(ll)); if (s) mm.setLatLng(s); q.ll = s || ll; refresh(); });
     S.planMarkers[i] = pm; S.mapMarkers[i] = mm;
   }
   function clearMarkers() {
@@ -165,10 +165,10 @@
   function click(e) {
     if (!S) return false;
     if (!S.pending) { GC.toast('First tap a point on the plan (a lot corner, kerb, fence corner…), then the same spot here on the map.'); return true; }
-    var s = GC.cadastre && GC.cadastre.snap(e.latlng), q = { u: S.pending.u, v: S.pending.v, ll: s || e.latlng };
+    var s = (GC.cadastre && GC.cadastre.snap(e.latlng)) || (GC.cad && GC.cad.snap(e.latlng)), q = { u: S.pending.u, v: S.pending.v, ll: s || e.latlng };
     planMap.removeLayer(S.pending.marker); S.pending = null;
     S.pairs.push(q); addMarkers(q, S.pairs.length - 1);
-    if (s) GC.toast('Snapped to the lot corner.');
+    if (s) GC.toast('Snapped to a corner.');
     refresh();
     return true;
   }
@@ -239,5 +239,5 @@
   $('gr-blend').onchange = function () { S.blend = $('gr-blend').checked; refresh(); };
   $('gr-op').oninput = function () { S.opacity = $('gr-op').value / 100; $('gr-opv').textContent = $('gr-op').value + '%'; refresh(); };
 
-  GC.georef = { start: start, edit: edit, click: click, isOn: function () { return !!S; }, fit: fit, planMap: function () { return planMap; }, isPlan: function (name) { return /\.(pdf|png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(name); } };
+  GC.georef = { start: start, edit: edit, openPlan: open, click: click, isOn: function () { return !!S; }, fit: fit, planMap: function () { return planMap; }, isPlan: function (name) { return /\.(pdf|png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(name); } };
 })(window);

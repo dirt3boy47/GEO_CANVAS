@@ -116,6 +116,7 @@
     project.layers.forEach(function (l) {
       if (layerIds.indexOf(l.id) < 0) return;
       if (l.kind === 'raster') { if (opts && opts.kmz && l.dataURL) body += groundOverlay(l); return; }
+      if (l.kind === 'cad') return; // reference drawings stay in GeoCanvas
       var pm = l.kind === 'vector' ? vectorKml(l, opts) : collect(project, [l.id], outlines).map(function (f) { return placemark(f, true, opts); }).join('');
       body += '<Folder><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility>\n' + pm + '</Folder>\n';
     });
