@@ -116,7 +116,7 @@
     project.layers.forEach(function (l) {
       if (layerIds.indexOf(l.id) < 0) return;
       if (l.kind === 'raster') { if (opts && opts.kmz && l.dataURL) body += groundOverlay(l); return; }
-      if (l.kind === 'cad' || l.kind === 'service' || l.kind === 'geopdf') return; // reference drawings and online maps stay in GeoCanvas
+      if (l.kind === 'cad' || l.kind === 'service' || l.kind === 'geopdf' || l.kind === 'libmap') return; // reference drawings and online maps stay in GeoCanvas
       var pm = l.kind === 'vector' ? vectorKml(l, opts) : collect(project, [l.id], outlines).map(function (f) { return placemark(f, true, opts); }).join('');
       body += '<Folder><name>' + esc(l.name) + '</name><visibility>' + (l.visible ? 1 : 0) + '</visibility>\n' + pm + '</Folder>\n';
     });

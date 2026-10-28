@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.7' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.8' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -180,7 +180,7 @@
       v.pane.style.zIndex = String(210 + Math.min(i, 380));
       v.pane.style.display = l.visible ? '' : 'none';
       v.pane.style.opacity = String(l.opacity == null ? 1 : l.opacity);
-      v.pane.style.mixBlendMode = (l.kind === 'raster' || l.kind === 'geopdf') && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
+      v.pane.style.mixBlendMode = (l.kind === 'raster' || l.kind === 'geopdf' || l.kind === 'libmap') && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
     });
   };
 
@@ -387,6 +387,14 @@
     var v = ensureView(l);
     v.group.clearLayers(); v.paths = {}; v.objs = {}; v.markers = {}; v.trackLines = {};
     if (l.kind === 'drawing') { GC.syncDrawing(l); return; }
+    if (l.kind === 'libmap') { // a map from My maps: drawn from the library's copy
+      var src = GC.mymaps && GC.mymaps.get(l.ref);
+      if (!src) return;
+      if (src.kind === 'geopdf') (src.pieces || []).forEach(function (p) { v.group.addLayer(new GC.AffineImage(p.url, p.c, { pane: v.pn, clip: p.clip })); });
+      else if (src.kind === 'raster') v.group.addLayer(src.corners ? new GC.AffineImage(src.dataURL, src.corners, { pane: v.pn }) : L.imageOverlay(src.dataURL, src.bounds, { pane: v.pn, interactive: false }));
+      else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono }), { pane: v.pn }));
+      return;
+    }
     if (l.kind === 'vector') {
       var vis = GC.featVisibility(l), shown = (l.geojson.features || []).filter(function (f, i) { return vis[i]; });
       var n = shown.length, kml = !!l.tree, labels = l.labelField && n <= 600, npts = 0;
@@ -447,6 +455,7 @@
     if (l.kind === 'drawing') l.items.forEach(function (el) { var m = Ink.mercBounds(el), a = Geo.unmerc(m[0], m[1]), c = Geo.unmerc(m[2], m[3]); add(a[1], a[0]); add(c[1], c[0]); });
     else if (l.kind === 'vector') { var bb = global.Importers.bounds(l.geojson); if (isFinite(bb[0])) { add(bb[1], bb[0]); add(bb[3], bb[2]); } }
     else if (l.kind === 'raster' || l.kind === 'cad' || l.kind === 'geopdf' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
+    else if (l.kind === 'libmap') { var s0 = GC.mymaps && GC.mymaps.get(l.ref); if (s0 && s0.bounds) { add(s0.bounds[0][0], s0.bounds[0][1]); add(s0.bounds[1][0], s0.bounds[1][1]); } }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
     else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); });
     return b;
@@ -466,10 +475,11 @@
     if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
     if (l.kind === 'service') return 'online map · ' + l.service.source;
     if (l.kind === 'geopdf') return 'map sheet · ' + l.crs;
+    if (l.kind === 'libmap') { var s1 = GC.mymaps && GC.mymaps.get(l.ref); return s1 ? 'My maps' + (s1.folder ? ' › ' + s1.folder.replace(/\//g, ' › ') : '') : (GC.mymaps && GC.mymaps.all().length ? 'missing from My maps' : 'loading from My maps…'); }
     return '';
   };
   var KIND = { drawing: 'Annotation', vector: 'GIS', raster: 'Raster', track: 'GPS track', waypoints: 'Waypoints', cad: 'CAD', service: 'Map', geopdf: 'GeoPDF' };
-  GC.kindLabel = function (l) { return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
+  GC.kindLabel = function (l) { if (l.kind === 'libmap') { var s2 = GC.mymaps && GC.mymaps.get(l.ref); return s2 ? GC.kindLabel(s2) : 'Map'; } return (l.kind === 'vector' || l.format === 'Plan') && l.format ? l.format : KIND[l.kind]; };
 
   /** Inserts imported layers below the annotation layers by default. */
   GC.insertLayer = function (l, onTop) {
@@ -758,6 +768,15 @@
         '<p class="hint">Placed from the GeoPDF’s own coordinates (' + GC.esc(l.encoding) + ') · ' + GC.esc(l.crs) + ' · drawn at ' + l.dpi + ' dpi' + (l.datum === 'gda94' ? ' · GDA94 converted to GDA2020' : '') + (l.rms != null ? ' · control points agree within ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(1) + ' m') : '') + '. Margins and legend are left off the map.</p>';
     } else if (l.kind === 'service' && GC.library) {
       html += GC.library.optionsHtml(l);
+    } else if (l.kind === 'libmap') {
+      var src = GC.mymaps && GC.mymaps.get(l.ref);
+      if (!src) html += '<p class="hint">This map is not in My maps (it was deleted, or My maps has not loaded yet).</p>';
+      else {
+        if (src.kind !== 'cad') html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (map lines and colours show over the imagery)</label>';
+        else html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+          '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>';
+        html += '<p class="hint">From My maps' + (src.folder ? ' › ' + GC.esc(src.folder.replace(/\//g, ' › ')) : '') + (src.crs ? ' · ' + GC.esc(String(src.crs)) : '') + '. The map is kept once in My maps and shown here; removing this layer does not delete it.</p>';
+      }
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
@@ -770,6 +789,8 @@
       '<button class="btn" data-a="export">Export…</button>' +
       (isVec && l.hasSources ? '<button class="btn" data-a="crs">Change coordinate system…</button>' : '') +
       (l.kind === 'raster' && l.gcps && GC.georef ? '<button class="btn" data-a="georef">Adjust georeferencing…</button>' : '') +
+      (GC.mymaps && /^(raster|geopdf|cad|service)$/.test(l.kind) && !l.libRef ? '<button class="btn" data-a="tolib">Save to My maps</button>' : '') +
+      (GC.mymaps && (l.kind === 'libmap' || l.libRef) ? '<button class="btn" data-a="inlib">Show in My maps</button>' : '') +
       '</div><div class="actions"><button class="btn danger" data-a="del">Delete layer</button><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div>';
     GC.modal(html, function (el, close) {
       var q = function (s) { return el.querySelector(s); };
@@ -802,6 +823,11 @@
       el.querySelector('[data-a=export]').onclick = function () { close(); GC.openExport([l.id]); };
       if (q('[data-a=crs]')) q('[data-a=crs]').onclick = function () { close(); GC.changeCRS(l); };
       if (q('[data-a=georef]')) q('[data-a=georef]').onclick = function () { close(); GC.georef.edit(l); };
+      if (q('[data-a=tolib]')) q('[data-a=tolib]').onclick = function () {
+        close(); GC.busy('Saving to My maps…');
+        GC.mymaps.saveLayer(l).then(function (m) { GC.busy(null); GC.toast('“' + m.name + '” is in My maps. Open My maps to put it in a folder or show it in other projects.'); }, function (e) { GC.busy(null); GC.toast('Could not save it: ' + e.message, 'err'); });
+      };
+      if (q('[data-a=inlib]')) q('[data-a=inlib]').onclick = function () { var m = GC.mymaps.get(l.ref || l.libRef); close(); GC.mymaps.open({ folder: m ? m.folder || '' : '' }); };
       if (l.kind === 'service' && GC.library) GC.library.bindOptions(l, el);
       if (q('#lo-blend')) q('#lo-blend').onchange = function () { l.blend = q('#lo-blend').checked; GC.applyLayerState(); GC.markDirty(l.id); };
       if (q('#lo-text')) {

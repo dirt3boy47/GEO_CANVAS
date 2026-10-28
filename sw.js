@@ -3,10 +3,10 @@
    (or when the network takes more than 4 s).
    Queensland imagery, lot-boundary and Map library tiles: saved offline areas ("gc-offline", never trimmed) first; imagery seen while
    browsing is kept in "gc-tiles" (trimmed to the newest tiles). Downloads for offline areas (cache: no-store) pass straight through. */
-var SHELL = 'gc-shell-v13'; // GeoCanvas 2026-10-28.7
+var SHELL = 'gc-shell-v14'; // GeoCanvas 2026-10-28.8
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
-  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/geopdf.js', 'js/cad.js', 'js/library.js', 'js/offline.js', 'js/cloud.js',
+  'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/geopdf.js', 'js/cad.js', 'js/library.js', 'js/mymaps.js', 'js/offline.js', 'js/cloud.js',
   'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js'];
 var TILE_HOST = 'spatial-img.information.qld.gov.au', LOT_HOST = 'spatial-gis.information.qld.gov.au';
 var MAX_TILES = 6000;

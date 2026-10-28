@@ -49,9 +49,10 @@
       });
     },
     isMemoryOnly: function () { return !!memory; },
-    listProjects: function () {
+    /** Projects, newest first. The My maps library (id "mylib…") is stored like a project but only listed when all === true. */
+    listProjects: function (all) {
       return keys('projects').then(function (ks) { return Promise.all(ks.map(function (k) { return get('projects', k); })); })
-        .then(function (ps) { return ps.filter(Boolean).sort(function (a, b) { return b.modified - a.modified; }); });
+        .then(function (ps) { return ps.filter(function (p) { return p && (all === true || !/^mylib/.test(p.id)); }).sort(function (a, b) { return b.modified - a.modified; }); });
     },
     loadProject: function (id) {
       return get('projects', id).then(function (meta) {

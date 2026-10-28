@@ -6,7 +6,7 @@
 
   // ======================= import =======================
   $('btn-import').onclick = function () { $('file-input').value = ''; $('file-input').click(); };
-  $('file-input').onchange = function () { var f = Array.prototype.slice.call($('file-input').files); if (f.length) importFiles(f); };
+  $('file-input').onchange = function () { var f = Array.prototype.slice.call($('file-input').files); return f.length ? importFiles(f) : null; };
   document.addEventListener('dragover', function (e) { e.preventDefault(); });
   document.addEventListener('drop', function (e) { e.preventDefault(); var f = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []); if (f.length) importFiles(f); });
 
@@ -78,8 +78,8 @@
     var dxfs = GC.cad ? files.filter(function (f) { return /\.dxf$/i.test(f.name); }) : [];
     if (dxfs.length) {
       files = files.filter(function (f) { return dxfs.indexOf(f) < 0; });
-      dxfs.reduce(function (chain, f) { return chain.then(function () { return GC.cad.importDxf(f); }); }, Promise.resolve());
-      if (!files.length) return Promise.resolve();
+      var dxfDone = dxfs.reduce(function (chain, f) { return chain.then(function () { return GC.cad.importDxf(f); }); }, Promise.resolve());
+      if (!files.length) return dxfDone;
     }
     if (files.some(function (f) { return /\.dwg$/i.test(f.name); })) {
       GC.toast('DWG files can’t be opened directly. In CAD use File › Save As › DXF (Civil 3D: Export to AutoCAD first), then import the DXF.', 'warn', 10000);

@@ -484,7 +484,7 @@
   /** Syncs the projects that are not open: new ones, ones with unsent changes, and ones changed elsewhere. */
   function syncOthers() {
     if (!on() || navigator.onLine === false) return Promise.resolve();
-    return Promise.all([Store.listProjects(), api('GET', 'projects')]).then(function (r) {
+    return Promise.all([Store.listProjects(true), api('GET', 'projects')]).then(function (r) {
       var remote = {}; r[1].projects.forEach(function (x) { remote[x.id] = x; });
       var pend = pendingSet();
       var todo = r[0].filter(function (m) {
@@ -661,7 +661,7 @@
   /** Projects in the cloud (for the Projects sheet); [] when off or unreachable. */
   function remoteList() {
     if (!on() || navigator.onLine === false) return Promise.resolve(null);
-    return api('GET', 'projects', null, { timeout: 8000 }).then(function (r) { return r.projects.filter(function (x) { return !x.deleted; }); }, function () { return null; });
+    return api('GET', 'projects', null, { timeout: 8000 }).then(function (r) { return r.projects.filter(function (x) { return !x.deleted && !/^mylib/.test(x.id); }); }, function () { return null; });
   }
   /** Copies a cloud project onto this device. */
   function download(id) {
@@ -674,9 +674,23 @@
     });
   }
   function deleteEverywhere(id) { return api('DELETE', 'projects/' + id); }
+  /** Changes a project that is not open (the My maps library) in the sync queue, so a background sync can't overwrite it:
+      fn(p) edits a fresh copy and returns the changed layer ids; it is saved, then synced when the cloud is on. */
+  function edit(id, fn) {
+    return enqueue(function () {
+      return Store.loadProject(id).then(function (p) {
+        var d = fn(p);
+        return Store.saveProject(p, d || null).then(function () {
+          if (!on() || p.cloudOff || navigator.onLine === false) { if (on()) pending(id, true); return p; }
+          pending(id, true);
+          return syncProject(p, false).then(function () { return p; }, function () { return p; }); // offline: synced later
+        });
+      });
+    }).then(function (p) { return Store.loadProject(p.id); });
+  }
   function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff && !otherTeam(meta); }
 
-  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, touch: function (id) { pending(id, true); },
+  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, touch: function (id) { pending(id, true); },
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
   // start

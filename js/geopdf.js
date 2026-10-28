@@ -298,7 +298,8 @@
     for (var ty = Y0; ty < Y1; ty += TILE) for (var tx = X0; tx < X1; tx += TILE) jobs.push([tx, ty, Math.min(TILE + 2, X1 - tx), Math.min(TILE + 2, Y1 - ty)]);
     var corner = function (px, py) { var p = vp.convertToPdfPoint(px, py), ll = tf.f(p[0], p[1]); return [+ll[1].toFixed(8), +ll[0].toFixed(8)]; };
     var rect = function (x, y, w, h) { return [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]; };
-    var pieces = [], k = 0;
+    var pieces = [], k = 0, tk = 200 / Math.max(X1 - X0, Y1 - Y0), thumb = document.createElement('canvas');
+    thumb.width = Math.max(1, Math.round((X1 - X0) * tk)); thumb.height = Math.max(1, Math.round((Y1 - Y0) * tk));
     var next = function () {
       if (k >= jobs.length) return Promise.resolve(pieces);
       var j = jobs[k++], cv = document.createElement('canvas'); cv.width = j[2]; cv.height = j[3];
@@ -317,11 +318,12 @@
             clip: ins === 4 ? null : poly.map(function (q) { return [+((q[0] - x) / w * 100).toFixed(3), +((q[1] - y) / h * 100).toFixed(3)]; }) });
           pc.width = pc.height = 0;
         }
+        thumb.getContext('2d').drawImage(cv, 0, 0, j[2], j[3], (j[0] - X0) * tk, (j[1] - Y0) * tk, j[2] * tk, j[3] * tk);
         cv.width = cv.height = 0; // free the memory now (iPad)
         return next();
       });
     };
-    return next().then(function (pc) { return { pieces: pc, dpi: Math.round(72 * s), frame: poly.map(function (p) { return corner(p[0], p[1]); }) }; });
+    return next().then(function (pc) { var t = thumb.toDataURL('image/jpeg', 0.7); thumb.width = 0; return { pieces: pc, thumb: t, dpi: Math.round(72 * s), frame: poly.map(function (p) { return corner(p[0], p[1]); }) }; });
   }
 
   // ---------- import ----------
@@ -349,9 +351,15 @@
           frame: r.frame, bounds: [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]], crs: g.crs, encoding: g.kind, dpi: r.dpi,
           rms: tf.rms, datum: g.datum, created: Date.now() };
         if (g.datum === 'unknown') l.warnings = ['The PDF does not say which datum its coordinates use; they were taken as GDA2020/WGS84.'];
-        GC.insertLayer(l, true); GC.zoomToLayer(l);
-        GC.toast('“' + nm + '” placed from its GeoPDF data (' + g.crs + ').' + (tf.rms != null && tf.rms > 5 ? ' Its control points disagree by ' + Math.round(tf.rms) + ' m.' : ''), tf.rms > 5 ? 'warn' : null, 8000);
-        return true;
+        if (r.thumb) l.thumb = r.thumb;
+        var placed = function (pl) {
+          GC.zoomToLayer(pl);
+          GC.toast('“' + nm + '” placed from its GeoPDF data (' + g.crs + ')' + (pl.kind === 'libmap' ? ' and saved in My maps' + (GC.mymaps.importFolder() ? ' › ' + GC.mymaps.importFolder().replace(/\//g, ' › ') : '') : '') + '.' + (tf.rms != null && tf.rms > 5 ? ' Its control points disagree by ' + Math.round(tf.rms) + ' m.' : ''), tf.rms > 5 ? 'warn' : null, 8000);
+          return true;
+        };
+        // GeoPDF sheets go into My maps (shared, in folders) and are shown in this project from there
+        if (GC.mymaps) return GC.mymaps.addMap(l).then(function (res) { return placed(res.layer); }, function () { GC.insertLayer(l, true); return placed(l); });
+        GC.insertLayer(l, true); return placed(l);
       });
     }).catch(function (e) { GC.busy(null); GC.toast('Could not open “' + file.name + '”: ' + e.message, 'err', 9000); return true; });
   }

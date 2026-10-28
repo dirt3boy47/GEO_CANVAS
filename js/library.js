@@ -161,14 +161,17 @@
   }
 
   // ---------- the library: featured, browse, search ----------
+  var target = '';
   function addService(url, title) {
     GC.busy('Adding the map…');
     return getJSON(url).then(function (info) {
-      GC.busy(null);
       var l = layerFor(url, info, title);
-      GC.insertLayer(l, true);
-      if (l.bounds && !map.getBounds().intersects(L.latLngBounds(l.bounds))) GC.zoomToLayer(l);
-      GC.toast('Added “' + l.name + '”.' + (l.identify ? ' Tap the map to see what’s there;' : '') + ' ⋯ shows its legend.', null, 6000);
+      // saved in My maps (in the folder the library was opened from) and shown in this project
+      return (GC.mymaps ? GC.mymaps.addMap(l, { folder: target }).then(function (r) { return r.layer; }) : Promise.resolve(GC.insertLayer(l, true)).then(function () { return l; })).then(function (pl) {
+        GC.busy(null);
+        if (pl && pl.bounds && !map.getBounds().intersects(L.latLngBounds(pl.bounds))) GC.zoomToLayer(pl);
+        GC.toast('Added “' + l.name + '” to My maps' + (target ? ' › ' + target.replace(/\//g, ' › ') : '') + ' and this project.' + (l.identify ? ' Tap the map to see what’s there.' : ''), null, 6000);
+      });
     }, function (e) { GC.busy(null); GC.toast('Could not open that map: ' + e.message, 'err', 8000); });
   }
   /** All services of both catalogues (names only), cached for a week. */
@@ -195,12 +198,13 @@
   }
   function inProject(url) { return (GC.project ? GC.project.layers : []).some(function (l) { return l.kind === 'service' && l.service.url === url; }); }
 
-  function open() {
-    GC.modal('<h2>Map library</h2><p class="sub">Free maps from Geoscience Australia and the Queensland Government: geology, topography, tenements and more. Add one to the project, then save it for offline use under Offline maps.</p>' +
+  function open(opts) {
+    target = opts && opts.folder != null ? opts.folder : '';
+    GC.modal('<h2>Online maps</h2><p class="sub">Free maps from Geoscience Australia and the Queensland Government: geology, topography, tenements and more. <b>Add</b> saves the map in My maps' + (target ? ' › ' + esc(target.replace(/\//g, ' › ')) : '') + ' and shows it in this project.</p>' +
       '<input type="search" id="lib-q" placeholder="Search maps, e.g. geology, topographic, groundwater, mineral" autocomplete="off">' +
       '<div class="seg lib-tabs"><button data-t="featured" class="on">Featured</button><button data-t="ga">Geoscience Australia</button><button data-t="qld">Queensland</button></div>' +
       '<div id="lib-body" class="lib-body"></div>' +
-      '<div class="actions"><button class="btn" data-a="offline">Offline maps…</button><button class="btn primary" data-a="close">Done</button></div>',
+      '<div class="actions"><button class="btn" data-a="back">‹ My maps</button><button class="btn primary" data-a="close">Done</button></div>',
       function (el, close) {
         var body = el.querySelector('#lib-body'), qbox = el.querySelector('#lib-q'), tab = 'featured', path = '';
         var wire = function () {
@@ -254,12 +258,12 @@
         var timer = null;
         qbox.oninput = function () { clearTimeout(timer); timer = setTimeout(function () { search(qbox.value.trim()); }, 250); };
         el.querySelector('[data-a=close]').onclick = close;
-        el.querySelector('[data-a=offline]').onclick = function () { close(); if (GC.offline) GC.offline.open(); };
+        el.querySelector('[data-a=back]').onclick = function () { close(); if (GC.mymaps) GC.mymaps.open({ folder: target }); };
         featured();
       });
   }
 
-  $('btn-library').onclick = open;
+  if ($('btn-library')) $('btn-library').onclick = function () { open(); };
   GC.library = { open: open, add: addService, layerFor: layerFor, tileUrl: tileUrl, tileLayer: tileLayer, identify: identify, optionsHtml: optionsHtml, bindOptions: bindOptions,
     visibleServices: visibleServices, index: index, FEATURED: FEATURED, ROOTS: ROOTS };
 })(window);
