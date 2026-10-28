@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.9' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-28.10' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -180,9 +180,37 @@
       v.pane.style.zIndex = String(210 + Math.min(i, 380));
       v.pane.style.display = l.visible ? '' : 'none';
       v.pane.style.opacity = String(l.opacity == null ? 1 : l.opacity);
-      v.pane.style.mixBlendMode = (l.kind === 'raster' || l.kind === 'geopdf' || l.kind === 'libmap') && l.blend ? 'multiply' : ''; // plans: white paper disappears, lines stay
+      // Over the imagery: "Hide white paper" multiplies (paper disappears, lines print on the photo); "High contrast" shows the
+      // map light-for-dark (hue kept) and screens it on, so the paper vanishes and the lines glow over dark bush.
+      var look = LOOK_KINDS[l.kind] ? l.blend : false;
+      v.pane.style.mixBlendMode = look === 'bright' ? 'screen' : look ? 'multiply' : '';
+      v.pane.style.webkitFilter = v.pane.style.filter = look === 'bright' ? 'invert(1) hue-rotate(180deg) contrast(1.35) saturate(1.7) brightness(1.15)' : '';
     });
   };
+  var LOOK_KINDS = { raster: 1, geopdf: 1, libmap: 1, service: 1 };
+  /** The "Over the imagery" choice in layer options (plans, GeoPDF and online maps). */
+  GC.lookHtml = function (l) {
+    var cur = l.blend === 'bright' ? 'bright' : l.blend ? 'white' : '';
+    return '<div class="field">Over the imagery<div class="seg lo-look">' + [['', 'Normal'], ['white', 'Hide white paper'], ['bright', 'High contrast']].map(function (o) {
+      return '<button type="button" data-look="' + o[0] + '"' + (o[0] === cur ? ' class="on"' : '') + '>' + o[1] + '</button>'; }).join('') + '</div></div>' +
+      '<p class="hint" id="lo-look-hint"></p>' +
+      '<label class="opt"><input type="checkbox" id="lo-dim"' + (GC.settings.dimImagery ? ' checked' : '') + '> Darken the imagery (helps lines stand out; applies to the whole map)</label>';
+  };
+  var LOOK_HINT = { '': 'The map as printed, covering the imagery (use Opacity to see through it).',
+    white: 'The white paper disappears and the map prints onto the imagery. Best on light imagery; dark lines can get lost in dark bush.',
+    bright: 'The paper disappears and the lines glow light over the imagery, keeping their colours (shown light-for-dark). Best on dark bush and forest.' };
+  GC.bindLook = function (l, el) {
+    var hint = el.querySelector('#lo-look-hint'), btns = el.querySelectorAll('.lo-look button');
+    var show = function (k) { [].forEach.call(btns, function (b) { b.classList.toggle('on', b.getAttribute('data-look') === k); }); if (hint) hint.textContent = LOOK_HINT[k]; };
+    [].forEach.call(btns, function (b) {
+      b.onclick = function () { var k = b.getAttribute('data-look'); l.blend = k === 'bright' ? 'bright' : k === 'white'; show(k); GC.applyLayerState(); GC.markDirty(l.id); };
+    });
+    show(l.blend === 'bright' ? 'bright' : l.blend ? 'white' : '');
+    var dim = el.querySelector('#lo-dim'); if (dim) dim.onchange = function () { GC.settings.dimImagery = dim.checked; GC.saveSettings(); GC.applyDim(); };
+  };
+  /** "Darken the imagery": dims the basemap (only the basemap: maps and drawings keep full strength). */
+  GC.applyDim = function () { var t = map.getPane('tilePane'); t.style.webkitFilter = t.style.filter = GC.settings.dimImagery ? 'brightness(0.55) saturate(0.85)' : ''; };
+  GC.applyDim();
 
   // Symbols for map markers (drawn inside a white disc).
   GC.SYMBOLS = {
@@ -758,21 +786,21 @@
         '<label class="opt"><input type="checkbox" id="lo-file"' + (st.useFileStyle !== false ? ' checked' : '') + '> Use colours stored in the file (KML/GeoJSON styles)</label>' +
         '<label class="field">Label features by<select id="lo-label"><option value="">No labels</option>' + fields.map(function (f) { return '<option' + (f === l.labelField ? ' selected' : '') + '>' + GC.esc(f) + '</option>'; }).join('') + '</select></label>';
     } else if (l.kind === 'raster') {
-      html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (plan lines show over the imagery)</label>' + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
+      html += GC.lookHtml(l) + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
     } else if (l.kind === 'cad') {
       html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
         '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
         (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
     } else if (l.kind === 'geopdf') {
-      html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (map lines and colours show over the imagery)</label>' +
+      html += GC.lookHtml(l) +
         '<p class="hint">Placed from the GeoPDF’s own coordinates (' + GC.esc(l.encoding) + ') · ' + GC.esc(l.crs) + ' · drawn at ' + l.dpi + ' dpi' + (l.datum === 'gda94' ? ' · GDA94 converted to GDA2020' : '') + (l.rms != null ? ' · control points agree within ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(1) + ' m') : '') + '. Margins and legend are left off the map.</p>';
     } else if (l.kind === 'service' && GC.library) {
-      html += GC.library.optionsHtml(l);
+      html += GC.lookHtml(l) + GC.library.optionsHtml(l);
     } else if (l.kind === 'libmap') {
       var src = GC.mymaps && GC.mymaps.get(l.ref);
       if (!src) html += '<p class="hint">This map is not in My maps (it was deleted, or My maps has not loaded yet).</p>';
       else {
-        if (src.kind !== 'cad') html += '<label class="opt"><input type="checkbox" id="lo-blend"' + (l.blend ? ' checked' : '') + '> Hide white paper (map lines and colours show over the imagery)</label>';
+        if (src.kind !== 'cad') html += GC.lookHtml(l);
         else html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
           '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>';
         html += '<p class="hint">From My maps' + (src.folder ? ' › ' + GC.esc(src.folder.replace(/\//g, ' › ')) : '') + (src.crs ? ' · ' + GC.esc(String(src.crs)) : '') + '. The map is kept once in My maps and shown here; removing this layer does not delete it.</p>';
@@ -829,7 +857,7 @@
       };
       if (q('[data-a=inlib]')) q('[data-a=inlib]').onclick = function () { var m = GC.mymaps.get(l.ref || l.libRef); close(); GC.mymaps.open({ folder: m ? m.folder || '' : '' }); };
       if (l.kind === 'service' && GC.library) GC.library.bindOptions(l, el);
-      if (q('#lo-blend')) q('#lo-blend').onchange = function () { l.blend = q('#lo-blend').checked; GC.applyLayerState(); GC.markDirty(l.id); };
+      if (q('.lo-look')) GC.bindLook(l, el);
       if (q('#lo-text')) {
         var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };
         q('#lo-text').onchange = function () { l.showText = q('#lo-text').checked; cadRedraw(); };

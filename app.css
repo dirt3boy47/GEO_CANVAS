@@ -218,6 +218,8 @@ body.no-sidebar #sidebar { display: none; }
 .mm-acts .btn { padding: 7px 11px; }
 .mm-move { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
 #modal .mm-move select { display: inline-block; width: auto; margin: 0; padding: 7px 8px; font-size: 14px; }
+.lo-look { display: flex; margin: 6px 0 0; }
+.lo-look button { flex: 1; justify-content: center; }
 #snip { position: fixed; inset: 0; z-index: 1150; touch-action: none; cursor: crosshair; }
 #snip canvas { position: absolute; left: 0; top: 0; touch-action: none; }
 #snip-bar { position: absolute; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; white-space: nowrap; max-width: calc(100% - 20px); cursor: default; }
