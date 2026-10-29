@@ -1,5 +1,5 @@
 /* GeoCanvas web — drawing tools and input.
-   Apple Pencil (pointerType "pen") always draws in Draw mode; fingers keep panning and zooming the map
+   Apple Pencil (pointerType "pen") always draws in Draw mode and never pans the map in any mode (it taps); fingers keep panning and zooming the map
    unless finger drawing is on (then one finger draws and two fingers pan/zoom). Every sample is turned
    into latitude/longitude the moment it arrives, so ink is pinned to the ground, not to the screen. */
 (function (global) {
@@ -201,8 +201,24 @@
   /** True while a pen/finger gesture or pinch is in progress (cloud sync waits for it). */
   GC.gestureActive = function () { return !!g || !!pinch; };
 
+  // Outside Draw mode the Pencil (any stylus) never moves the map: it only taps, so tapping a pipe, valve or lot still
+  // opens its card. Fingers keep panning and zooming. Card buttons and draggable markers still take the Pencil.
+  var penAt = 0, penDown = null;
+  function penOnly(e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('.leaflet-popup, .leaflet-marker-draggable')) return false;
+    return inMap(e);
+  }
   function onDown(e) {
-    if (GC.mode !== 'draw' || !inMap(e)) return;
+    if (GC.mode !== 'draw') {
+      if (e.pointerType === 'pen' && penOnly(e)) {
+        penAt = Date.now(); penDown = e.pointerId; e.stopPropagation(); // no preventDefault: the tap's click must still come
+        // Leaflet ignores the click after a drag until its next pointer-down; the Pencil's down never reaches it, so reset that here
+        var dr = map.dragging && map.dragging._draggable; if (dr) dr._moved = false;
+      }
+      return;
+    }
+    if (!inMap(e)) return;
     var type = e.pointerType;
     if (g && g.type === 'pen' && type !== 'pen') { e.stopPropagation(); e.preventDefault(); return; } // palm rejection
     if (type === 'touch' && !GC.settings.fingerDraw) return; // let Leaflet pan/zoom
@@ -226,6 +242,7 @@
     queueLive();
   }
   function onUp(e) {
+    if (e.pointerId === penDown) penDown = null;
     if (fingers[e.pointerId]) { delete fingers[e.pointerId]; if (pinch) { e.stopPropagation(); if (fingerCount() < 2) endPinch(); return; } }
     if (!g || e.pointerId !== g.id) { if (g && g.type === 'pen' && e.pointerType === 'touch') e.stopPropagation(); return; }
     e.stopPropagation(); e.preventDefault();
@@ -240,8 +257,9 @@
     // Stop Safari's compatibility mouse/touch events from reaching Leaflet while the Pencil draws.
     ['touchstart', 'touchmove', 'mousedown'].forEach(function (t) {
       window.addEventListener(t, function (e) {
-        if (GC.mode !== 'draw' || !inMap(e)) return;
         var stylus = e.touches && Array.prototype.some.call(e.touches, function (x) { return x.touchType === 'stylus'; });
+        if (GC.mode !== 'draw') { if ((stylus || (e.type === 'mousedown' && penDown != null)) && penOnly(e)) e.stopPropagation(); return; } // the Pencil's own compatibility events
+        if (!inMap(e)) return;
         if (g || stylus || (e.type === 'mousedown' && !('ontouchstart' in window)) || (GC.settings.fingerDraw && e.touches)) { e.stopPropagation(); if (e.cancelable && (g || stylus)) e.preventDefault(); }
       }, { capture: true, passive: false });
     });
@@ -254,6 +272,8 @@
     window.addEventListener('touchend', wrap(onUp, 'pointerup'), { capture: true, passive: false });
     window.addEventListener('touchcancel', wrap(onUp, 'pointercancel'), { capture: true, passive: false });
   }
+  // nor does a Pencil double-tap zoom it
+  window.addEventListener('dblclick', function (e) { if (GC.mode !== 'draw' && Date.now() - penAt < 800 && penOnly(e)) e.stopPropagation(); }, true);
   C.addEventListener('mouseleave', function () { GC.setHover(null); });
 
   // Two-finger pan/zoom while finger drawing is on.

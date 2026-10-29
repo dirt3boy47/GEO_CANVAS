@@ -54,7 +54,7 @@ the old team's projects are still on the iPads that had them.
 
 | | |
 |---|---|
-| **Navigate** mode | Drag and pinch to move the map. Tap anything (a pipe, valve, lot, drawing, waypoint or photo point) for its card. |
+| **Navigate** mode | Drag and pinch with your fingers to move the map. Tap anything (a pipe, valve, lot, drawing, waypoint or photo point) for its card. Apple Pencil (or any stylus) never moves the map: it taps (cards, measure points, buttons) and, in Draw mode, draws. |
 | Tap cards | Every card looks the same and has the same buttons: **Go** (guide me there), **Measure** (measure from here), **Photo** and **Note** (kept on the feature, drawing or waypoint; on a lot or map service they pin a waypoint at the tap), **Copy** (lat/long or MGA2020 to the clipboard) and **More** (Zoom to, Hide, Rename, Delete, Add lot to project…). |
 | Go (take me there) | From a card or a search result. A dashed line runs from your blue GPS dot to the nearest point of the feature (a line or area is reached at its closest edge), with a live readout such as “142 m · Bearing 63° ENE · ahead-left” (turns use the iPad compass, or your direction of travel when walking). Within 5 m it says “You’re there” and the iPad buzzes where supported. Show both fits you and the target; Stop ends it. |
 | Search | Finds your own data first as you type: feature names, attributes and folder names (“PHW-AV-002”, “thrust block 13”), drawn markers and text, waypoints and tracks, each with a Go button. Then places, coordinates (lat/long or MGA) and lot/plan. |

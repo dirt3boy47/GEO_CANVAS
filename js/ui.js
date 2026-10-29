@@ -110,7 +110,7 @@
   var TOOLS = '<div class="hp-tools">' +
     tool('i-sidebar', 'Layers', 'Show or hide the layers panel. ⋯ on a layer opens its options (opacity, look over the imagery, legend); drag ⠿ to reorder; ▸ opens folders; double-tap a layer or folder to zoom to it; tap a placemark for its details.') +
     tool('i-folder', 'Projects', 'Every project of your team, on any device. Changes save by themselves.') +
-    tool('i-hand', 'Navigate / Draw', 'Navigate: drag and pinch to move the map, tap things to see their details. Draw: Apple Pencil writes, fingers still move the map; tools along the bottom.') +
+    tool('i-hand', 'Navigate / Draw', 'Navigate: drag and pinch with your fingers to move the map, tap things to see their details. Apple Pencil never moves the map, it only taps and draws. Draw: Apple Pencil writes, fingers still move the map; tools along the bottom.') +
     tool('i-plus', 'Add', 'Import a file (KML/KMZ, GeoPDF, shapefile, DXF, GeoTIFF, GPX, GeoJSON, PDF or photo plans), open My maps or Online maps, or start a new drawing layer.') +
     tool('i-layers', 'Map', 'Choose the background, turn on lot boundaries, darken the imagery, and save areas for offline use.') +
     tool('i-camera', 'Camera', 'Opens the camera; the photo is pinned at your GPS position. Pick a category (Defect, Safety… or your own) and an importance: pins are coloured Info → Critical. Filter them in the Photo points layer’s ⋯ options.') +
