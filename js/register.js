@@ -6,7 +6,8 @@
 (function (global) {
   'use strict';
   var GC = global.GC, map = GC.map, $ = GC.$, esc = GC.esc;
-  var st = { q: '', cat: '', min: 0, chk: 'all', sort: 'taken', dir: -1 };
+  var st = { q: '', cat: '', min: 0, chk: 'all', sort: 'taken', dir: -1, sel: {} };
+  function rowKey(x) { return x.l.id + ':' + (x.w.time != null ? x.w.time : x.w.name); }
 
   /** Every photo point in the project: [{l, w}]. */
   function rows() {
@@ -20,9 +21,10 @@
   }
   function short(t) { var d = new Date(t); return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' }) + ', ' + d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
   function catName(x) { var c = GC.camera.catOf(x.l, x.w); return c ? c.name : ''; }
-  function filtered() {
+  function filtered(noFilter) {
     var q = st.q.toLowerCase().trim(), cam = GC.camera;
     var list = rows().filter(function (x) {
+      if (noFilter === true) return true;
       var w = x.w;
       if (st.cat && (w.cat || 'gen') !== st.cat) return false;
       if ((w.imp | 0) < st.min) return false;
@@ -50,15 +52,16 @@
     if (!GC.project || !GC.camera) return;
     if (GC.ui) GC.ui.close();
     var cam = GC.camera, IMP = cam.IMP, list = [];
-    var H = [['chk', '✓'], ['', 'Photo'], ['name', 'Action'], ['cat', 'Category'], ['imp', 'Importance'], ['taken', 'Taken'], ['chk', 'Checked'], ['', 'Note'], ['', '']];
+    var H = [['', '<label class="rg-sel" title="Select all shown"><input type="checkbox" id="rg-all"><i></i></label>'], ['', 'Photo'], ['name', 'Action'], ['cat', 'Category'], ['imp', 'Importance'], ['taken', 'Taken'], ['chk', 'Checked'], ['', 'Note'], ['', '']];
     GC.modal('<div class="rg"><div class="rg-top"><h2>Actions register <small id="rg-count"></small></h2>' +
       '<div class="rg-tools"><input type="search" id="rg-q" placeholder="Search name, note, who checked…" value="' + esc(st.q) + '">' +
       '<select id="rg-cat">' + catOptions(st.cat, true) + '</select>' +
       '<select id="rg-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === st.min ? ' selected' : '') + '>' + (i === 0 ? 'All importance' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="seg small" id="rg-chk"><button data-c="all">All</button><button data-c="todo">To check</button><button data-c="done">Checked</button></div>' +
-      '<button class="btn" id="rg-csv">Export CSV</button><button class="btn" id="rg-photos">Export photos</button><button class="btn primary" id="rg-new">+ New action</button></div></div>' +
+      '<button class="btn" id="rg-csv">Export CSV</button><button class="btn" id="rg-photos">Export photos</button><button class="btn" id="rg-pdf">PDF report</button><button class="btn primary" id="rg-new">+ New action</button></div>' +
+      '<div class="rg-selbar" id="rg-selbar" hidden><b id="rg-seln"></b> selected: PDF report, Export photos and Export CSV use these. <button class="link" id="rg-selclear">Clear</button></div></div>' +
       '<div class="rg-table" role="table"><div class="rg-row rg-head" role="row">' + H.map(function (h) { return '<span role="columnheader"' + (h[0] ? ' data-s="' + h[0] + '"' : '') + '>' + h[1] + '</span>'; }).join('') + '</div><div id="rg-body"></div></div>' +
-      '<div class="actions"><span class="hint" id="rg-hint">Tap ✓ when an action has been checked. Category and importance change in place.</span><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div></div>',
+      '<div class="actions"><span class="hint" id="rg-hint">Tick the first column to choose actions for a report or export; tick Checked once an action has been checked.</span><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div></div>',
     function (el, close) {
       $('modal').classList.add('wide', 'reg');
       var q = function (s) { return el.querySelector(s); }, bodyEl = q('#rg-body');
@@ -68,32 +71,43 @@
       };
       var rowHtml = function (x, i) {
         var w = x.w, imp = cam.impOf(w), ro = x.l.locked, ph = w.photos && w.photos[0], kd = cam.kindOf(w);
-        return '<div class="rg-row' + (w.chk ? ' done' : '') + '" role="row" data-i="' + i + '" style="--ic:' + imp.c + '">' +
-          '<label class="rg-tick" title="Checked"><input type="checkbox" data-k="chk"' + (w.chk ? ' checked' : '') + (ro ? ' disabled' : '') + '><i></i></label>' +
+        return '<div class="rg-row' + (w.chk ? ' done' : '') + (st.sel[rowKey(x)] ? ' picked' : '') + '" role="row" data-i="' + i + '" style="--ic:' + imp.c + '">' +
+          '<label class="rg-sel" title="Select for a report or export"><input type="checkbox" data-k="sel"' + (st.sel[rowKey(x)] ? ' checked' : '') + '><i></i></label>' +
           '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : '<span class="rg-glyph">' + cam.pinSvg(imp.c, cam.catOf(x.l, w)) + '</span>') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
           '<span class="rg-name"><b>' + esc(w.name || 'Action') + '</b><small><span class="rg-kind">' + esc(kd.k) + '</span>' + esc((kd.size ? kd.size + ' · ' : '') + x.l.name) + '</small></span>' +
           '<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cam.cats(x.l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' +
           '<select data-k="imp" class="rg-imp"' + (ro ? ' disabled' : '') + '>' + IMP.map(function (m, k) { return '<option value="' + k + '"' + (k === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select>' +
           '<span class="rg-taken" title="When the photo was taken">' + esc(short(cam.taken(w))) + '</span>' +
-          '<span class="rg-who">' + (w.chk ? esc(w.chk.by) + '<small>' + esc(short(w.chk.t)) + '</small>' : '<small>—</small>') + '</span>' +
+          '<span class="rg-chkcell"><label class="rg-tick" title="Checked"><input type="checkbox" data-k="chk"' + (w.chk ? ' checked' : '') + (ro ? ' disabled' : '') + '><i></i></label>' +
+          '<span class="rg-who">' + whoHtml(w) + '</span></span>' +
           '<span class="rg-note">' + esc(w.note || '') + '</span>' +
           '<button class="btn rg-go" data-k="show">Map</button></div>';
       };
+      var whoHtml = function (w) { return w.chk ? esc(w.chk.by) + '<small>' + esc(short(w.chk.t)) + '</small>' : '<small>Not checked</small>'; };
+      var paintSel = function () {
+        var n = Object.keys(st.sel).length, shownSel = list.filter(function (x) { return st.sel[rowKey(x)]; }).length;
+        q('#rg-selbar').hidden = !n; q('#rg-seln').textContent = n + (n === 1 ? ' action' : ' actions') + (shownSel < n ? ' (' + (n - shownSel) + ' hidden by the filters)' : '');
+        var all = q('#rg-all'); all.checked = list.length > 0 && shownSel === list.length; all.indeterminate = shownSel > 0 && shownSel < list.length;
+      };
+      /** What exports work on: the selected actions (in register order), else everything shown. */
+      var target = function () { var n = Object.keys(st.sel).length; if (!n) return list.slice(); var f = filtered.call(null, true); return f.filter(function (x) { return st.sel[rowKey(x)]; }); };
       var paint = function () {
+        var keep = {}; rows().forEach(function (x) { if (st.sel[rowKey(x)]) keep[rowKey(x)] = 1; }); st.sel = keep; // forget deleted actions
         list = filtered();
         bodyEl.innerHTML = list.length ? list.map(rowHtml).join('') : '<p class="rg-empty">' + (rows().length ? 'No photos match.' : 'No photos yet. Tap Camera to take the first one.') + '</p>';
         [].forEach.call(bodyEl.querySelectorAll('img[data-ph]'), function (im) { GC.photos.url(im.getAttribute('data-ph')).then(function (u) { if (u) im.src = u; }); });
         [].forEach.call(q('.rg-head').querySelectorAll('[data-s]'), function (h) { h.classList.toggle('on', h.getAttribute('data-s') === st.sort); h.setAttribute('data-dir', st.dir > 0 ? '▲' : '▼'); });
         [].forEach.call(q('#rg-chk').children, function (b) { b.classList.toggle('on', b.getAttribute('data-c') === st.chk); });
-        paintCount();
+        paintCount(); paintSel();
       };
       bodyEl.addEventListener('change', function (e) {
         var r = e.target.closest('.rg-row'); if (!r) return;
         var x = list[+r.getAttribute('data-i')], k = e.target.getAttribute('data-k'), w = x.w;
+        if (k === 'sel') { if (e.target.checked) st.sel[rowKey(x)] = 1; else delete st.sel[rowKey(x)]; r.classList.toggle('picked', e.target.checked); paintSel(); return; }
         if (k === 'chk') {
           cam.setChecked(x.l, w, e.target.checked);
           r.classList.toggle('done', !!w.chk);
-          r.querySelector('.rg-who').innerHTML = w.chk ? esc(w.chk.by) + '<small>' + esc(short(w.chk.t)) + '</small>' : '<small>—</small>';
+          r.querySelector('.rg-who').innerHTML = whoHtml(w);
           paintCount();
           return;
         }
@@ -117,14 +131,27 @@
       q('#rg-cat').onchange = function () { st.cat = q('#rg-cat').value; paint(); };
       q('#rg-min').onchange = function () { st.min = +q('#rg-min').value; paint(); };
       q('#rg-chk').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; st.chk = b.getAttribute('data-c'); paint(); };
-      q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(list)], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' actions register.csv'); };
+      q('#rg-all').onchange = function () { var on = q('#rg-all').checked; list.forEach(function (x) { if (on) st.sel[rowKey(x)] = 1; else delete st.sel[rowKey(x)]; }); paint(); };
+      q('#rg-selclear').onclick = function () { st.sel = {}; paint(); };
+      q('#rg-pdf').onclick = function () { var t = target(); if (!t.length) { GC.toast('Nothing to report: no actions are shown.', 'warn'); return; } if (GC.report) GC.report.open(t, describeFilter(Object.keys(st.sel).length)); };
+      q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(target())], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' actions register.csv'); };
       q('[data-a=done]').onclick = close;
-      q('#rg-photos').onclick = function () { exportPhotos(list.slice()); };
+      q('#rg-photos').onclick = function () { exportPhotos(target()); };
       q('#rg-new').onclick = function () { close(); newMenu(); };
       paint();
     }, function () { $('modal').classList.remove('wide', 'reg'); });
   }
 
+  /** In words, which actions a report covers. */
+  function describeFilter(nSel) {
+    if (nSel) return 'Selected actions (' + nSel + ')';
+    var bits = [];
+    if (st.cat) { var c = null; GC.project.layers.forEach(function (l) { if (l.kind === 'waypoints' && l.photoPts) c = c || GC.camera.cats(l).filter(function (x) { return x.id === st.cat; })[0]; }); bits.push(c ? c.name : 'one category'); }
+    if (st.min) bits.push(st.min === 4 ? 'Critical only' : GC.camera.IMP[st.min].n + ' and above');
+    if (st.chk === 'todo') bits.push('To check'); else if (st.chk === 'done') bits.push('Checked');
+    if (st.q) bits.push('“' + st.q + '”');
+    return bits.length ? 'Filter: ' + bits.join(', ') : 'All actions';
+  }
   /** File names for every photo of the listed actions, unique across the export: [{ x, ref, path }]. */
   function photoFiles(list, folders) {
     var used = {}, out = [];
