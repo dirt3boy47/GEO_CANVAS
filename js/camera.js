@@ -76,7 +76,7 @@
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function chipsHtml(cs, sel) {
-    return cs.map(function (c) { return '<button class="cam-chip' + (c.id === sel ? ' on' : '') + '" data-c="' + esc(c.id) + '"><svg viewBox="0 0 24 24">' + symbol(c, 0, 0, 1).replace(/#fff/g, 'currentColor') + '</svg>' + esc(c.name) + '</button>'; }).join('') +
+    return cs.map(function (c) { return '<button class="cam-chip' + (c.id === sel ? ' on' : '') + '" data-c="' + esc(c.id) + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + symbol(c, 0, 0, 1).replace(/#fff/g, 'currentColor') + '</svg><span>' + esc(c.name) + '</span></button>'; }).join('') +
       '<button class="cam-chip add" data-new>+ New</button>';
   }
   function impHtml(sel) {
