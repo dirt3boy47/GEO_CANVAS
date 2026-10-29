@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.15' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.16' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -375,12 +375,14 @@
     getEvents: function () { return { moveend: this._draw, zoomstart: this._hide, resize: this._draw, viewreset: this._draw }; },
     _hide: function () { this._cv.style.visibility = 'hidden'; },
     _prep: function () { // mercator coordinates and bounding boxes, once
-      var c = this._l.cad;
-      this._lines = c.lines.map(function (a) {
-        var n = (a.length - 1) / 2, m = new Float64Array(n * 2), b = [Infinity, Infinity, -Infinity, -Infinity];
-        for (var k = 0; k < n; k++) { var q = Geo.merc(a[1 + 2 * k], a[2 + 2 * k]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
-        return { c: a[0], m: m, b: b };
-      });
+      var c = this._l.cad, dc = GC.cad.decode(c);
+      var merc = function (a, b) {
+        var n = a.length / 2, m = new Float64Array(n * 2);
+        for (var k = 0; k < n; k++) { var q = Geo.merc(a[2 * k], a[2 * k + 1]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
+        return m;
+      };
+      this._lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, m: merc(ln.p, b), b: b }; });
+      this._fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
       this._texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7] }; });
     },
     _draw: function () {
@@ -393,11 +395,29 @@
       var ws = 256 * Math.pow(2, map.getZoom()), o = map.getPixelOrigin(), ox = o.x + tl.x, oy = o.y + tl.y;
       var vb = [ox / ws, oy / ws, (ox + w) / ws, (oy + h) / ws], colors = l.cad.colors, mono = l.mono;
       x.lineWidth = 1.4; x.lineJoin = 'round'; x.lineCap = 'round';
+      var off = function (b) { return b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]; };
+      var tiny = 0.6 / ws; // smaller than ~half a pixel at this zoom: not worth drawing
+      // a path through screen points, skipping points less than ~¾ pixel from the last one drawn (level of detail)
+      var trace = function (m, close) {
+        var lx = m[0] * ws - ox, ly = m[1] * ws - oy; x.moveTo(lx, ly);
+        for (var k = 2; k < m.length; k += 2) { var px = m[k] * ws - ox, py = m[k + 1] * ws - oy; if (k < m.length - 2 && Math.abs(px - lx) + Math.abs(py - ly) < 0.75) continue; x.lineTo(px, py); lx = px; ly = py; }
+        if (close) x.closePath();
+      };
+      if (l.hideFills !== true && this._fills.length) { // hatches under the linework: solid fills half-strength, patterns as a light tint
+        var fBy = {};
+        this._fills.forEach(function (f) { if (off(f.b) || (f.b[2] - f.b[0] < tiny && f.b[3] - f.b[1] < tiny)) return; var k = f.c + ':' + (f.s ? 1 : 0); (fBy[k] = fBy[k] || []).push(f); });
+        Object.keys(fBy).forEach(function (k) {
+          var parts = k.split(':'); x.fillStyle = mono || colors[parts[0]]; x.globalAlpha = parts[1] === '1' ? 0.5 : 0.14; x.beginPath();
+          fBy[k].forEach(function (f) { f.r.forEach(function (m) { trace(m, true); }); });
+          x.fill('evenodd');
+        });
+        x.globalAlpha = 1;
+      }
       var byColor = {};
-      this._lines.forEach(function (ln) { if (ln.b[2] < vb[0] || ln.b[0] > vb[2] || ln.b[3] < vb[1] || ln.b[1] > vb[3]) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
+      this._lines.forEach(function (ln) { if (off(ln.b) || (ln.b[2] - ln.b[0] < tiny && ln.b[3] - ln.b[1] < tiny)) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
       Object.keys(byColor).forEach(function (ci) {
         x.strokeStyle = mono || colors[ci]; x.beginPath();
-        byColor[ci].forEach(function (ln) { var m = ln.m; x.moveTo(m[0] * ws - ox, m[1] * ws - oy); for (var k = 2; k < m.length; k += 2) x.lineTo(m[k] * ws - ox, m[k + 1] * ws - oy); });
+        byColor[ci].forEach(function (ln) { trace(ln.m, false); });
         x.stroke();
       });
       if (l.showText === false || !this._texts.length) return;
@@ -424,7 +444,7 @@
       var src = GC.mymaps && GC.mymaps.get(l.ref);
       if (!src) return;
       if (src.kind === 'geopdf' || src.kind === 'raster') v.group.addLayer(new GC.MapPieces(src, { pane: v.pn })); // from this device or streamed from the cloud
-      else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono }), { pane: v.pn }));
+      else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono, hideFills: l.hideFills }), { pane: v.pn }));
       return;
     }
     if (l.kind === 'vector') {
@@ -515,7 +535,7 @@
     if (l.kind === 'track') { var d = 0, pts = 0; (l.tracks || []).forEach(function (t) { d += t.distance || 0; pts += t.points.length; }); return (l.tracks || []).length + ' track' + ((l.tracks || []).length === 1 ? '' : 's') + ' · ' + GC.fmtDist(d); }
     if (l.kind === 'waypoints' && l.photoPts && GC.camera) { var wn = (l.waypoints || []).length, ws = l.waypoints.filter(function (w) { return GC.camera.shown(l, w); }).length; return wn + (wn === 1 ? ' photo point' : ' photo points') + (ws < wn ? ' · ' + ws + ' shown' : ''); }
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
-    if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
+    if (l.kind === 'cad') { var cn = GC.cad ? GC.cad.counts(l.cad) : { lines: (l.cad.lines || []).length, fills: 0 }; return 'reference drawing · ' + cn.lines.toLocaleString() + ' lines' + (cn.fills ? ' · ' + cn.fills.toLocaleString() + ' hatches' : ''); }
     if (l.kind === 'service') return 'online map · ' + l.service.source;
     if (l.kind === 'geopdf') return 'map sheet · ' + l.crs;
     if (l.kind === 'libmap') { var s1 = GC.mymaps && GC.mymaps.get(l.ref); return s1 ? 'My maps' + (s1.folder ? ' › ' + s1.folder.replace(/\//g, ' › ') : '') : (GC.mymaps && GC.mymaps.all().length ? 'missing from My maps' : 'loading from My maps…'); }
@@ -804,6 +824,7 @@
       html += GC.lookHtml(l) + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
     } else if (l.kind === 'cad') {
       html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+        '<label class="opt"><input type="checkbox" id="lo-fills"' + (l.hideFills ? '' : ' checked') + '> Show hatch fills</label>' +
         '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
         (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
     } else if (l.kind === 'geopdf') {
@@ -817,6 +838,7 @@
       else {
         if (src.kind !== 'cad') html += GC.lookHtml(l);
         else html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+          '<label class="opt"><input type="checkbox" id="lo-fills"' + (l.hideFills ? '' : ' checked') + '> Show hatch fills</label>' +
           '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>';
         if (GC.mymaps.hosted(src)) html += '<p class="hint">' + (GC.mymaps.isHere(src) ? '📱 Downloaded on this device: works offline.' : '☁ Shown from the cloud (needs internet). Download it in My maps to use it offline.') + '</p>';
         html += '<p class="hint">From My maps' + (src.folder ? ' › ' + GC.esc(src.folder.replace(/\//g, ' › ')) : '') + (src.crs ? ' · ' + GC.esc(String(src.crs)) : '') + '. The map is kept once in My maps and shown here; removing this layer does not delete it.</p>';
@@ -881,6 +903,7 @@
       if (q('#lo-text')) {
         var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };
         q('#lo-text').onchange = function () { l.showText = q('#lo-text').checked; cadRedraw(); };
+        if (q('#lo-fills')) q('#lo-fills').onchange = function () { if (q('#lo-fills').checked) delete l.hideFills; else l.hideFills = true; cadRedraw(); };
         q('#lo-mono').onchange = function () { if (q('#lo-mono').checked) l.mono = q('#lo-monoc').value; else delete l.mono; cadRedraw(); };
         q('#lo-monoc').oninput = function () { if (q('#lo-mono').checked) { l.mono = q('#lo-monoc').value; cadRedraw(); } };
       }

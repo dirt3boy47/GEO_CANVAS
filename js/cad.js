@@ -8,7 +8,7 @@
 (function (global) {
   'use strict';
   var GC = global.GC, Geo = global.Geo, Ink = global.Ink, $ = GC.$, esc = GC.esc;
-  var MAX_VERTICES = 400000, MAX_DEPTH = 8;
+  var MAX_VERTICES = 2500000, MAX_DEPTH = 8; // points kept are stored compactly (see encode) and drawn with level of detail
 
   // ---------- AutoCAD colour index → RGB ----------
   var ACI = (function () {
@@ -70,7 +70,7 @@
 
   /** Turns parsed entities into world-coordinate polylines and texts (drawing units). */
   function geometry(d) {
-    var lines = [], texts = [], skipped = {}, vcount = 0, truncated = false;
+    var lines = [], texts = [], fills = [], skipped = {}, vcount = 0, truncated = false;
     var layerOf = function (e, ctx) { var l = g(e, 8) || '0'; return l === '0' && ctx.layer ? ctx.layer : l; };
     var colorOf = function (e, ctx, layer) {
       var tc = g(e, 420); if (tc != null) return trueColor(+tc);
@@ -87,6 +87,18 @@
       if (closed) a.push(a[0], a[1]);
       vcount += a.length / 2; if (vcount > MAX_VERTICES) { truncated = true; return; }
       lines.push({ c: color, p: a });
+    };
+    /** A filled area (hatch, MPOLYGON): rings of points, drawn even-odd. solid: a solid fill (else a pattern, shown as a tint). */
+    var fill = function (m, rings, color, solid) {
+      if (truncated) return;
+      var rs = [];
+      rings.forEach(function (pts) {
+        if (pts.length < 3) return;
+        var a = []; pts.forEach(function (p) { a.push(m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]); });
+        vcount += a.length / 2; rs.push(a);
+      });
+      if (vcount > MAX_VERTICES) { truncated = true; return; }
+      if (rs.length) fills.push({ c: color, s: !!solid, r: rs });
     };
     var arcPts = function (cx, cy, r, a0, a1) { // radians, counter-clockwise
       while (a1 <= a0) a1 += 2 * Math.PI;
@@ -123,6 +135,56 @@
         .replace(/[{}]/g, '').replace(/\\\\/g, '\\').replace(/\\~/g, ' ');
     };
     var special = function (s) { return s.replace(/%%[cC]/g, 'Ø').replace(/%%[dD]/g, '°').replace(/%%[pP]/g, '±').replace(/%%[uUoO]/g, ''); };
+
+    /** Boundary rings of a HATCH or MPOLYGON: polyline paths (with bulges) or edge paths (lines, arcs, ellipse arcs, splines). */
+    var hatchRings = function (e) {
+      var c = e.codes, i = 0, rings = [], D = Math.PI / 180;
+      while (i < c.length && c[i][0] !== 91) i++;
+      if (i >= c.length) return rings;
+      var np = parseInt(c[i][1], 10) || 0; i++;
+      var at = function (code) { return i < c.length && c[i][0] === code; };
+      var read = function (code, d) { // the next value with this code, but never past the next path or the end of the boundaries
+        while (i < c.length && c[i][0] !== code) { var k = c[i][0]; if (k === 92 || k === 75 || k === 76 || k === 98) return d; i++; }
+        if (i >= c.length) return d; var v = parseFloat(c[i][1]); i++; return isNaN(v) ? d : v;
+      };
+      for (var p = 0; p < np && i < c.length; p++) {
+        while (i < c.length && c[i][0] !== 92) { if (c[i][0] === 75 || c[i][0] === 76 || c[i][0] === 98) return rings; i++; }
+        if (i >= c.length) break;
+        var flag = parseInt(c[i][1], 10) || 0; i++;
+        var pts = [];
+        if (flag & 2) { // polyline path
+          var hasB = read(72, 0), nv = (read(73, 1), read(93, 0)), v = [];
+          for (var k = 0; k < nv; k++) { var x = read(10, 0), y = read(20, 0), b = hasB && at(42) ? read(42, 0) : 0; v.push([x, y, b]); }
+          v.closed = true; pts = bulgePts(v);
+        } else { // edge path
+          var ne = read(93, 0);
+          for (var k2 = 0; k2 < ne; k2++) {
+            var et = read(72, 0) | 0, seg = [];
+            if (et === 1) seg = [[read(10, 0), read(20, 0)], [read(11, 0), read(21, 0)]];
+            else if (et === 2) {
+              var cx = read(10, 0), cy = read(20, 0), r = read(40, 0), a0 = read(50, 0) * D, a1 = read(51, 0) * D, ccw = read(73, 1);
+              seg = ccw ? arcPts(cx, cy, r, a0, a1) : arcPts(cx, cy, r, -a1, -a0).reverse(); // clockwise arcs are stored mirrored
+            } else if (et === 3) {
+              var ex = read(10, 0), ey = read(20, 0), mx = read(11, 0), my = read(21, 0), ratio = read(40, 1), s0 = read(50, 0) * D, s1 = read(51, 360) * D, eccw = read(73, 1);
+              if (!eccw) { var t0 = -s1; s1 = -s0; s0 = t0; }
+              while (s1 <= s0) s1 += 2 * Math.PI;
+              var nn = Math.max(8, Math.ceil((s1 - s0) / (Math.PI / 36)));
+              for (var q = 0; q <= nn; q++) { var t = s0 + (s1 - s0) * q / nn; seg.push([ex + mx * Math.cos(t) - ratio * my * Math.sin(t), ey + my * Math.cos(t) + ratio * mx * Math.sin(t)]); }
+              if (!eccw) seg.reverse();
+            } else if (et === 4) {
+              var deg = read(94, 3), rat = (read(73, 0)), nk = (read(74, 0), read(95, 0)), nc = read(96, 0), codes = [[71, String(deg)]];
+              for (var kk = 0; kk < nk; kk++) codes.push([40, String(read(40, 0))]);
+              for (var cc = 0; cc < nc; cc++) { codes.push([10, String(read(10, 0))], [20, String(read(20, 0))]); if (rat && at(42)) codes.push([41, String(read(42, 1))]); }
+              if (at(97) && i + 1 < c.length && c[i + 1][0] === 11) { var nf = read(97, 0); for (var ff = 0; ff < nf; ff++) codes.push([11, String(read(11, 0))], [21, String(read(21, 0))]); }
+              seg = spline({ codes: codes });
+            }
+            seg.forEach(function (pt, j) { var last = pts[pts.length - 1]; if (j === 0 && last && Math.abs(last[0] - pt[0]) < 1e-9 && Math.abs(last[1] - pt[1]) < 1e-9) return; pts.push(pt); });
+          }
+        }
+        if (pts.length >= 3) rings.push(pts);
+      }
+      return rings;
+    };
 
     function draw(ents, m, ctx, depth) {
       for (var k = 0; k < ents.length; k++) {
@@ -184,6 +246,12 @@
             if (e.attribs) draw(e.attribs, m, ctx, depth + 1);
             break;
           }
+          case 'HATCH': case 'MPOLYGON': {
+            var rings = hatchRings(e), solid = g(e, 70) === '1' || /^SOLID$/i.test(g(e, 2) || '');
+            fill(mo, rings, color, solid);
+            if (!solid) rings.forEach(function (rg) { poly(mo, rg, color, true); }); // patterns: their outline, and a light tint
+            break;
+          }
           case 'POINT': case 'VIEWPORT': case 'SEQEND': case 'VERTEX': case 'ATTDEF': break;
           default: skipped[t] = (skipped[t] || 0) + 1;
         }
@@ -205,7 +273,7 @@
     };
     Object.keys(d.blocks).forEach(function (k) { d.blocks[k].ents = group(d.blocks[k].ents); });
     draw(group(d.entities), I, {}, 0);
-    return { lines: lines, texts: texts, skipped: skipped, truncated: truncated };
+    return { lines: lines, texts: texts, fills: fills, skipped: skipped, truncated: truncated, points: vcount };
   }
   /** B-spline (with weights) from control points and knots; fit points when there are no control points. */
   function spline(e) {
@@ -235,6 +303,7 @@
   function extent(geo) {
     var b = [Infinity, Infinity, -Infinity, -Infinity];
     geo.lines.forEach(function (l) { for (var k = 0; k < l.p.length; k += 2) { if (l.p[k] < b[0]) b[0] = l.p[k]; if (l.p[k] > b[2]) b[2] = l.p[k]; if (l.p[k + 1] < b[1]) b[1] = l.p[k + 1]; if (l.p[k + 1] > b[3]) b[3] = l.p[k + 1]; } });
+    (geo.fills || []).forEach(function (f) { f.r.forEach(function (p) { for (var k = 0; k < p.length; k += 2) { if (p[k] < b[0]) b[0] = p[k]; if (p[k] > b[2]) b[2] = p[k]; if (p[k + 1] < b[1]) b[1] = p[k + 1]; if (p[k + 1] > b[3]) b[3] = p[k + 1]; } }); });
     geo.texts.forEach(function (t) { b[0] = Math.min(b[0], t.x); b[2] = Math.max(b[2], t.x); b[1] = Math.min(b[1], t.y); b[3] = Math.max(b[3], t.y); });
     return b;
   }
@@ -245,18 +314,50 @@
     if (b[0] >= -180 && b[2] <= 180 && b[1] >= -90 && b[3] <= 90 && b[2] - b[0] < 5) return 'geo';
     return 'local';
   }
+  // ---------- compact storage ----------
+  // Linework is kept as one string: varints (base64) of 1e-7° integer coordinates, each point stored as the difference
+  // from the previous one (about 5 bytes a point instead of ~24 as JSON numbers), so big surveys fit, sync and load.
+  // Lines: [colour, n, (dx, dy) × n]; fills: [colour, solid, rings, (n, (dx, dy) × n) × rings].
+  function Enc() { this.b = new Uint8Array(1 << 16); this.n = 0; this.x = 0; this.y = 0; }
+  Enc.prototype.u = function (v) { // unsigned varint (arithmetic: values exceed 2^31)
+    if (this.n + 10 > this.b.length) { var nb = new Uint8Array(this.b.length * 2); nb.set(this.b); this.b = nb; }
+    while (v >= 128) { this.b[this.n++] = (v % 128) + 128; v = Math.floor(v / 128); }
+    this.b[this.n++] = v;
+  };
+  Enc.prototype.s = function (v) { this.u(v >= 0 ? v * 2 : -v * 2 - 1); };
+  Enc.prototype.pt = function (lon, lat) { var X = Math.round(lon * 1e7), Y = Math.round(lat * 1e7); this.s(X - this.x); this.s(Y - this.y); this.x = X; this.y = Y; };
+  Enc.prototype.str = function () { var s = '', u = this.b.subarray(0, this.n); for (var i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+  function Dec(b64) { var s = atob(b64 || ''); this.b = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) this.b[i] = s.charCodeAt(i); this.i = 0; this.x = 0; this.y = 0; }
+  Dec.prototype.u = function () { var v = 0, m = 1, c; do { c = this.b[this.i++]; v += (c & 127) * m; m *= 128; } while (c >= 128); return v; };
+  Dec.prototype.s = function () { var v = this.u(); return v % 2 ? -(v + 1) / 2 : v / 2; };
+  Dec.prototype.more = function () { return this.i < this.b.length; };
+  var decoded = new WeakMap();
+  /** Linework of a CAD layer: { lines: [{c, p: Float64Array lon,lat,…}], fills: [{c, s, r: [Float64Array]}] } (cached). Reads both storage forms. */
+  function decode(cad) {
+    var hit = decoded.get(cad); if (hit) return hit;
+    var out = { lines: [], fills: [] };
+    if (cad.data != null) {
+      var d = new Dec(cad.data), rd = function (n) { var a = new Float64Array(n * 2); for (var k = 0; k < n; k++) { d.x += d.s(); d.y += d.s(); a[2 * k] = d.x / 1e7; a[2 * k + 1] = d.y / 1e7; } return a; };
+      for (var li = 0; li < (cad.n || 0); li++) { var c = d.u(), n = d.u(); out.lines.push({ c: c, p: rd(n) }); }
+      d = new Dec(cad.fillData); // fills: their own stream
+      for (var fi = 0; fi < (cad.nf || 0); fi++) { var fc = d.u(), fs = d.u(), nr = d.u(), rs = []; for (var ri = 0; ri < nr; ri++) rs.push(rd(d.u())); out.fills.push({ c: fc, s: !!fs, r: rs }); }
+    } else (cad.lines || []).forEach(function (a) { out.lines.push({ c: a[0], p: Float64Array.from(a.slice(1)) }); });
+    decoded.set(cad, out);
+    return out;
+  }
+  function counts(cad) { return { lines: cad.n != null ? cad.n : (cad.lines || []).length, fills: cad.nf || 0, texts: (cad.texts || []).length }; }
   function build(name, geo, toLL, unit) {
     var colors = [], ci = {}, cidx = function (c) { if (!(c in ci)) { ci[c] = colors.length; colors.push(c); } return ci[c]; };
     var r7 = function (v) { return Math.round(v * 1e7) / 1e7; }, bb = L.latLngBounds([]);
-    var lines = geo.lines.map(function (l) {
-      var a = [cidx(l.c)];
-      for (var k = 0; k < l.p.length; k += 2) { var ll = toLL(l.p[k], l.p[k + 1]); a.push(r7(ll[0]), r7(ll[1])); bb.extend([ll[1], ll[0]]); }
-      return a;
-    });
+    var le = new Enc(), fe = new Enc();
+    var put = function (enc, p) { enc.u(p.length / 2); for (var k = 0; k < p.length; k += 2) { var ll = toLL(p[k], p[k + 1]); enc.pt(ll[0], ll[1]); bb.extend([ll[1], ll[0]]); } };
+    geo.lines.forEach(function (l) { le.u(cidx(l.c)); put(le, l.p); });
+    (geo.fills || []).forEach(function (f) { fe.u(cidx(f.c)); fe.u(f.s ? 1 : 0); fe.u(f.r.length); f.r.forEach(function (p) { put(fe, p); }); });
     var texts = geo.texts.map(function (t) { var ll = toLL(t.x, t.y); bb.extend([ll[1], ll[0]]); return [cidx(t.c), r7(ll[0]), r7(ll[1]), Math.round(t.h * unit * 1000) / 1000, Math.round(t.r * 10) / 10, t.ax, t.ay, t.s]; });
     if (!bb.isValid()) throw new Error('The drawing has no linework in model space.');
     return { id: Ink.uid(), name: name, kind: 'cad', visible: true, opacity: 1, locked: true, format: 'DXF', showText: true,
-      cad: { colors: colors, lines: lines, texts: texts }, bounds: [[bb.getSouth(), bb.getWest()], [bb.getNorth(), bb.getEast()]], warnings: [], created: Date.now() };
+      cad: { v: 2, colors: colors, n: geo.lines.length, data: le.str(), nf: (geo.fills || []).length, fillData: fe.str(), points: geo.points, texts: texts },
+      bounds: [[bb.getSouth(), bb.getWest()], [bb.getNorth(), bb.getEast()]], warnings: [], created: Date.now() };
   }
   /** Local-coordinate drawings become an image, placed with the georeferencer like any plan. */
   function asPlan(name, geo) {
@@ -265,6 +366,7 @@
     var x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cv.width, cv.height); x.lineWidth = 4; x.lineJoin = 'round';
     var X = function (v) { return pad + (v - b[0]) * k; }, Y = function (v) { return pad + (b[3] - v) * k; };
     var ink = function (c) { return /^#(f[a-f0-9]){3}$/i.test(c) || c === '#ffffff' ? '#000000' : c; }; // white CAD lines on white paper → black
+    (geo.fills || []).forEach(function (f) { x.fillStyle = ink(f.c); x.globalAlpha = f.s ? 0.5 : 0.14; x.beginPath(); f.r.forEach(function (p) { for (var q = 0; q < p.length; q += 2) { if (q) x.lineTo(X(p[q]), Y(p[q + 1])); else x.moveTo(X(p[q]), Y(p[q + 1])); } x.closePath(); }); x.fill('evenodd'); x.globalAlpha = 1; });
     geo.lines.forEach(function (l) { x.strokeStyle = ink(l.c); x.beginPath(); for (var q = 0; q < l.p.length; q += 2) { if (q) x.lineTo(X(l.p[q]), Y(l.p[q + 1])); else x.moveTo(X(l.p[q]), Y(l.p[q + 1])); } x.stroke(); });
     geo.texts.forEach(function (t) { var px = t.h * k; if (px < 4) return; x.save(); x.translate(X(t.x), Y(t.y)); x.rotate(-t.r * Math.PI / 180); x.fillStyle = ink(t.c); x.font = px + 'px sans-serif'; var rows = t.s.split('\n'), lh = px * 1.35, top = -(1 - t.ay) * (rows.length - 1) * lh; rows.forEach(function (row, i) { x.fillText(row, -t.ax * x.measureText(row).width, t.ay * px + top + i * lh); }); x.restore(); });
     GC.georef.openPlan({ name: name, url: cv.toDataURL('image/jpeg', 0.92), w: cv.width, h: cv.height, pairs: [] });
@@ -295,7 +397,8 @@
             var l = build(name, geo, toLL, kind === 'geo' ? 111000 : scale);
             l.crs = code; l.warnings = notes;
             GC.insertLayer(l, true); GC.busy(null); GC.zoomToLayer(l);
-            GC.toast('“' + name + '” added as a reference drawing (' + l.cad.lines.length.toLocaleString() + ' lines' + (l.cad.texts.length ? ', ' + l.cad.texts.length.toLocaleString() + ' texts' : '') + ').' + (notes.length ? ' ' + notes.join(' ') : ''), notes.length ? 'warn' : null, 9000);
+            var cn = counts(l.cad);
+            GC.toast('“' + name + '” added as a reference drawing (' + cn.lines.toLocaleString() + ' lines' + (cn.fills ? ', ' + cn.fills.toLocaleString() + ' hatches' : '') + (cn.texts ? ', ' + cn.texts.toLocaleString() + ' texts' : '') + ').' + (notes.length ? ' ' + notes.join(' ') : ''), notes.length ? 'warn' : null, 9000);
           });
         };
         if (kind === 'geo') return add(4326, 1);
@@ -312,9 +415,11 @@
     if (!GC.project) return null;
     GC.project.layers.forEach(function (l) {
       if (l.kind !== 'cad' || !l.visible) return;
-      l.cad.lines.forEach(function (a) {
-        for (var k = 1; k < a.length; k += 2) {
-          if (a[k + 1] < view.getSouth() || a[k + 1] > view.getNorth() || a[k] < view.getWest() || a[k] > view.getEast()) continue;
+      var S = view.getSouth(), N = view.getNorth(), W = view.getWest(), E = view.getEast();
+      decode(l.cad).lines.forEach(function (ln) {
+        var a = ln.p;
+        for (var k = 0; k < a.length; k += 2) {
+          if (a[k + 1] < S || a[k + 1] > N || a[k] < W || a[k] > E) continue;
           var q = map.latLngToContainerPoint([a[k + 1], a[k]]), dd = Math.hypot(q.x - p.x, q.y - p.y);
           if (dd < bd) { bd = dd; best = L.latLng(a[k + 1], a[k]); }
         }
@@ -323,5 +428,5 @@
     return best;
   }
 
-  GC.cad = { importDxf: importDxf, parse: parse, geometry: geometry, snap: snap, ACI: ACI };
+  GC.cad = { importDxf: importDxf, parse: parse, geometry: geometry, snap: snap, ACI: ACI, decode: decode, counts: counts, build: build };
 })(window);
