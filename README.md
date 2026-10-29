@@ -50,6 +50,13 @@ Pushing to the production branch redeploys automatically. Teams are in the `team
 only as SHA-256 fingerprints. If every member of a team forgets its code, make a new team (☁ › Create a team);
 the old team's projects are still on the iPads that had them.
 
+### Workspaces: one team workspace, plus private jobs
+
+- **Team workspace.** A team has one shared workspace. Joining the team opens it, and everyone’s changes appear in it live. The tag next to the project name says **Team · live**.
+- **Private jobs.** **Projects › + New private job** makes a workspace of your own on this device, empty or starting from a copy of the team workspace. It works offline, the team’s changes don’t come in while you work, and nothing of it uploads. Tag: **Private job**, status “Kept on this device”.
+- **Send to team.** **Projects › Send to team** merges the job into the team workspace. Only what changed in the job since it started (or since its last send) is applied, item by item for drawings, tracks and actions, so changes others made meanwhile are kept. Where the same item was changed in both places, the job’s version wins. Sending again with no changes sends nothing.
+- **Projects from before.** Anything made on a device before it joined a team stays a private job; nothing uploads by surprise. Team projects from before workspaces are listed under **Older team projects**, with **Copy into team workspace**.
+
 ## Using it
 
 | | |

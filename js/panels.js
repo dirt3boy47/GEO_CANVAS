@@ -779,6 +779,7 @@
       });
   }
   $('btn-projects').onclick = function () {
+    if (GC.workspace && GC.workspace.active()) { GC.workspace.openList(); return; } // in a team: the team workspace and private jobs
     var cloudOn = GC.cloud && GC.cloud.on();
     if (cloudOn) GC.busy('Checking the team cloud…');
     Promise.all([GC.saveNow().then(Store.listProjects), cloudOn ? GC.cloud.remoteList() : Promise.resolve(null)]).then(function (r) {
@@ -844,6 +845,8 @@
       });
     });
   };
+
+  GC.deleteProject = deleteProject; // the Workspaces screen (js/workspace.js) uses it for older team projects
 
   // ======================= settings =======================
   $('btn-settings').onclick = function () {

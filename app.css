@@ -733,3 +733,13 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
 .na-grid { grid-template-columns: repeat(4, 1fr) !important; margin-top: 10px; }
 @media (max-width: 520px) { .na-grid { grid-template-columns: repeat(2, 1fr) !important; } }
 #phone-addsheet h2 { margin: 0 0 12px; font-size: 21px; }
+/* ---------- workspaces (js/workspace.js) ---------- */
+.ws-tag { border: 0; border-radius: 999px; padding: 1px 7px; margin-right: 6px; font: 700 10.5px/1.5 var(--font); text-transform: uppercase; letter-spacing: .03em; cursor: pointer; vertical-align: 1px; }
+.ws-tag.team { background: var(--accent); color: var(--accent-ink); }
+.ws-tag.job { background: #f2a900; color: #2b1d00; }
+.ws-card { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1.5px solid var(--accent); border-radius: 14px; margin: 12px 0 6px; background: color-mix(in srgb, var(--accent) 8%, var(--panel-solid)); }
+.ws-card .grow { flex: 1; min-width: 0; } .ws-card b { display: block; } .ws-card small { color: var(--muted); }
+.ws-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-size: 20px; flex: none; }
+.ws-head { font-weight: 700; margin: 16px 2px 6px; } .ws-head small { color: var(--muted); font-weight: 500; margin-left: 6px; }
+.ws-older { margin-top: 14px; } .ws-older summary { cursor: pointer; font-weight: 650; color: var(--muted); padding: 6px 2px; }
+.cloud-status.job, #cloud-status.job { color: #b07d00; }

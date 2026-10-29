@@ -107,7 +107,8 @@
       case 'offline': return { cls: 'warn', short: 'Offline', long: n ? 'Offline. Changes to ' + n + ' project' + (n > 1 ? 's are' : ' are') + ' kept on this iPad and upload by themselves when the internet is back.' : 'Offline. Everything was saved before the connection dropped.' };
       case 'error': return { cls: 'err', short: 'Not saved', long: 'Not saved to the cloud: ' + status.msg };
       case 'foreign': return { cls: 'warn', short: 'Other team', long: 'This project belongs to a team this iPad has left, so it is kept on this iPad only and not saved to “' + (team() ? team().name : 'this team') + '”.' };
-      case 'skip': return { cls: 'warn', short: 'Not in cloud', long: 'This project was removed from the team cloud on another device. Projects › Upload again to share it again.' };
+      case 'skip': if (GC.project && GC.project.job) return { cls: 'job', short: 'Kept on this device', long: 'A private job: kept on this device, works offline, and the team’s changes don’t come in. Projects › Send to team when it’s ready.' };
+        return { cls: 'warn', short: 'Not in cloud', long: 'This project was removed from the team cloud on another device. Projects › Upload again to share it again.' };
       case 'ok': return { cls: 'ok', short: 'Saved ' + hhmm(status.at), long: 'All changes saved to the cloud at ' + hhmm(status.at) + '.' };
       default: return { cls: 'idle', short: 'Ready', long: 'Connected to ' + (team() ? '“' + team().name + '”' : 'the team cloud') + '. Changes save by themselves.' };
     }
@@ -415,6 +416,10 @@
         }
         var man = rem && rem.manifest;
         if (!man && !base && p.layers.every(function (l) { return l.kind === 'drawing' && !l.items.length; }) && !p.notes) return 'skip'; // nothing worth sharing yet
+        if (man && !base && isEmpty(p)) { // an empty, never-synced copy (e.g. two devices each started the team workspace): take the cloud's as it is
+          p.layers = []; p.activeLayer = null;
+          if (man.meta) { p.name = man.meta.name || p.name; p.notes = man.meta.notes || ''; p.basemap = man.meta.basemap || p.basemap; }
+        }
         return prefetch(p, base, man).then(function (pre) {
           if (!stillOurs()) return 'skip';
           if (isOpen && GC.gestureActive && GC.gestureActive()) return 'busy';
@@ -545,7 +550,7 @@
       GC.settings.cloud = { key: key, device: device, team: r.team }; GC.saveSettings();
       try { localStorage.removeItem('gc.cloudPending'); } catch (e) { /* ignore */ }
       refreshProjectTab();
-      return openLatestIfEmpty().then(function () { lastCheck = 0; run(true).then(syncOthers); });
+      return (GC.workspace ? GC.workspace.onJoin() : openLatestIfEmpty()).then(function () { lastCheck = 0; run(true).then(syncOthers); });
     });
   }
   /** A brand-new team: the server makes its join code; this iPad joins it. */
@@ -625,7 +630,7 @@
             job.then(function () {
               close();
               if (mode === 'create') { openTeam(); GC.toast('Team “' + team().name + '” is ready. Share its join code with the others.'); }
-              else GC.toast('Welcome to “' + team().name + '”, ' + who + '. Your projects now save to the cloud by themselves.');
+              else GC.toast('Welcome to “' + team().name + '”, ' + who + '. This is the team workspace: everyone’s changes appear here live. Projects › New private job to work on your own.', null, 8000);
             }, function (e) { btn.textContent = label; msg(e.message); });
           };
         });

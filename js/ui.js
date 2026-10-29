@@ -109,7 +109,7 @@
   function tool(icon, name, text) { return '<div class="hp-tool"><span class="hp-ico"><svg><use xlink:href="#' + icon + '"/></svg></span><div><b>' + name + '</b><span>' + text + '</span></div></div>'; }
   var TOOLS = '<div class="hp-tools">' +
     tool('i-sidebar', 'Layers', 'Show or hide the layers panel. ⋯ on a layer opens its options (opacity, look over the imagery, legend); drag ⠿ to reorder; ▸ opens folders; double-tap a layer or folder to zoom to it; tap a placemark for its details.') +
-    tool('i-folder', 'Projects', 'Every project of your team, on any device. Changes save by themselves.') +
+    tool('i-folder', 'Workspaces', 'In a team: the one shared team workspace (live: everyone’s changes appear as they happen) and your private jobs (offline, on this device, not live). Send to team merges a job into the team workspace. Not in a team: your projects on this device.') +
     tool('i-hand', 'Navigate / Draw', 'Navigate: drag and pinch with your fingers to move the map, tap things to see their details. Apple Pencil never moves the map, it only taps and draws. Draw: Apple Pencil writes, fingers still move the map; tools along the bottom.') +
     tool('i-plus', 'Add', 'Import a file (KML/KMZ, GeoPDF, shapefile, DXF, GeoTIFF, GPX, GeoJSON, PDF or photo plans), open My maps or Online maps, or start a new drawing layer.') +
     tool('i-layers', 'Map', 'Choose the background, turn on lot boundaries, darken the imagery, and save areas for offline use.') +
