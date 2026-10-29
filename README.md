@@ -54,7 +54,10 @@ the old team's projects are still on the iPads that had them.
 
 | | |
 |---|---|
-| **Navigate** mode | Drag and pinch to move the map. Tap a feature or drawing to see its details, length and area. |
+| **Navigate** mode | Drag and pinch to move the map. Tap anything (a pipe, valve, lot, drawing, waypoint or photo point) for its card. |
+| Tap cards | Every card looks the same and has the same buttons: **Go** (guide me there), **Measure** (measure from here), **Photo** and **Note** (kept on the feature, drawing or waypoint; on a lot or map service they pin a waypoint at the tap), **Copy** (lat/long or MGA2020 to the clipboard) and **More** (Zoom to, Hide, Rename, Delete, Add lot to project…). |
+| Go (take me there) | From a card or a search result. A dashed line runs from your blue GPS dot to the nearest point of the feature (a line or area is reached at its closest edge), with a live readout such as “142 m · Bearing 63° ENE · ahead-left” (turns use the iPad compass, or your direction of travel when walking). Within 5 m it says “You’re there” and the iPad buzzes where supported. Show both fits you and the target; Stop ends it. |
+| Search | Finds your own data first as you type: feature names, attributes and folder names (“PHW-AV-002”, “thrust block 13”), drawn markers and text, waypoints and tracks, each with a Go button. Then places, coordinates (lat/long or MGA) and lot/plan. |
 | **Draw** mode | Apple Pencil draws; fingers still pan and zoom. Ballpoint, fountain pen, pencil, highlighter, marker, handwriting, eraser (whole object or precision), lasso (move, resize, recolour, duplicate, delete, move to layer), line, arrow, rectangle, ellipse, freehand polygon, text labels and symbol markers with notes. Tap the active tool again for thickness and opacity. Settings › "Draw with finger" if you don't have a Pencil. |
 | Basemaps | QLD aerial imagery (default), QLD imagery + roads, Esri world imagery, OpenStreetMap, OpenTopoMap. If the Queensland service doesn't answer, GeoCanvas switches to Esri automatically. |
 | Top bar | Layers, Projects, Navigate/Draw, then **Add** (import a file, My maps, Online maps, new drawing layer), **Map** (background cards, lot boundaries, darken imagery, offline maps), Measure, Search, GPS, **Share** (export), Undo/Redo, Team & cloud, **Help** (quick start, offline & online flow chart, tools) and Settings. Labels show on landscape iPads; portrait shows icons. |
@@ -101,6 +104,7 @@ js/library.js                Online maps: Geoscience Australia / QLD map service
 js/mymaps.js                 My maps: the team map library (folders, shared, referenced by projects)
 js/offline.js                offline maps: snip an area, save its imagery and lot-boundary tiles
 js/ui.js                     top-bar Add menu and Map panel, Help (with the offline/online flow chart), welcome
+js/cards.js                  tap cards (one card + actions for everything), Go guidance, search in your own data
 js/store.js                  IndexedDB project storage
 js/cloud.js                  cloud sync: three-way merge with the team's copy in Cloudflare D1
 worker/index.js              Cloudflare Worker: serves the app and the /api/ sync endpoints

@@ -431,7 +431,7 @@
     if (h.el.group) h.l.items.forEach(function (x) { if (x.group === h.el.group) sel[h.l.id][x.id] = true; });
     GC.setSelection(sel);
   }
-  // In Navigate mode a tap on drawn ink or a GIS feature opens the inspector.
+  // In Navigate mode a tap on drawn ink or a GIS feature opens its tap card.
   map.on('click', function (e) {
     if (GC.mode === 'draw') return;
     if (GC.georef && GC.georef.click(e)) return; // placing a plan: taps are control points

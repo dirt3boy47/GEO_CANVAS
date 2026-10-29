@@ -99,7 +99,7 @@
     var b = map.getBounds(), sz = map.getSize();
     var q = '/identify?geometry=' + ll.lng.toFixed(7) + ',' + ll.lat.toFixed(7) + '&geometryType=esriGeometryPoint&sr=4326&tolerance=4&returnGeometry=false' +
       '&mapExtent=' + [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(function (v) { return v.toFixed(6); }).join(',') + '&imageDisplay=' + sz.x + ',' + sz.y + ',96';
-    var pop = L.popup({ className: 'gc-balloon', maxWidth: 380, maxHeight: Math.round(sz.y * 0.6) }).setLatLng(ll).setContent('<div class="gb-title">What’s here…</div>').openOn(map);
+    var card = GC.card.open({ ll: ll, title: 'What’s here', sub: ls.map(function (l) { return l.name; }).join(' · '), body: '<p class="lib-sub">Looking it up…</p>', at: [ll.lng, ll.lat] });
     Promise.all(ls.map(function (l) {
       var s = l.service, which = s.show ? 'visible:' + s.show.join(',') : 'visible';
       return getJSON(s.url + q + '&layers=' + which).then(function (d) { return { l: l, r: (d.results || []).slice(0, 6) }; }, function () { return { l: l, r: [], err: true }; });
@@ -114,10 +114,13 @@
         });
       });
       if (!n) {
-        if (GC.cadastre && GC.cadastre.on()) { map.closePopup(pop); GC.cadastre.identify(ll); return; }
+        if (GC.cadastre && GC.cadastre.on()) { GC.card.close(); GC.cadastre.identify(ll); return; }
         html = '<div class="gb-title">Nothing mapped here</div><p class="lib-sub">' + (all.some(function (a) { return a.err; }) ? 'The map service could not be reached (it needs an internet connection).' : 'No features of the visible map services at this spot.') + '</p>';
       }
-      pop.setContent('<div class="lib-ident">' + html + '</div>');
+      if (GC.card.current() !== card) return; // closed or replaced meanwhile
+      var first = null; all.some(function (x) { if (x.r.length) { first = x.r[0]; return true; } return false; });
+      if (first) card.spec.name = String(first.value != null && first.value !== '' ? first.value : first.layerName);
+      card.root.querySelector('.gc-body').innerHTML = '<div class="lib-ident">' + html + '</div>'; card.refit();
     });
     return true;
   }

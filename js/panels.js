@@ -1,4 +1,4 @@
-/* GeoCanvas web — import, inspector, GPS, search, export, projects, settings and start-up. */
+/* GeoCanvas web — import, tap cards, GPS, search, export, projects, settings and start-up. */
 (function (global) {
   'use strict';
   var GC = global.GC, Geo = global.Geo, Ink = global.Ink, Store = global.Store, Importers = global.Importers, Exporters = global.Exporters;
@@ -171,33 +171,9 @@
     });
   };
 
-  // ======================= inspector =======================
-  /** photos: { refs, onChange(refs) } shows a photo strip (with Add when the point is editable). */
-  function openInspector(title, sub, rows, actions, photos) {
-    $('insp-title').textContent = title; $('insp-sub').textContent = sub || '';
-    var h = '<table>' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + (r[2] ? r[1] : esc(r[1])) + '</td></tr>'; }).join('') + '</table>';
-    if (actions && actions.length) h += '<div class="row-btns" style="margin:12px 0 0">' + actions.map(function (a, i) { return '<button class="btn' + (a.danger ? ' danger' : '') + '" data-i="' + i + '">' + esc(a.label) + '</button>'; }).join('') + '</div>';
-    $('insp-body').innerHTML = (photos ? '<div id="insp-photos"></div>' : '') + h;
-    Array.prototype.forEach.call($('insp-body').querySelectorAll('[data-i]'), function (b) { b.onclick = function () { actions[+b.getAttribute('data-i')].fn(); }; });
-    if (photos) {
-      var paint = function (refs) {
-        GC.photos.strip($('insp-photos'), refs, photos.onChange ? {
-          onAdd: function () { GC.photos.pick().then(function (more) { if (more.length) { refs = refs.concat(more); photos.onChange(refs); paint(refs); } }); },
-          onChange: function (left) { refs = left; photos.onChange(left); paint(left); }
-        } : {});
-      };
-      paint(photos.refs || []);
-    }
-    $('inspector').hidden = false;
-    $('gps-panel').hidden = true;
-  }
-  GC.closeInspector = function () { $('inspector').hidden = true; if (balloon) map.closePopup(balloon); if (hl) { map.removeLayer(hl); hl = null; } };
-  $('insp-close').onclick = GC.closeInspector;
-  var hl = null;
-  function highlight(geojson) {
-    if (hl) map.removeLayer(hl);
-    hl = L.geoJSON(geojson, { interactive: false, style: { color: '#ffff00', weight: 5, opacity: 0.9, fillOpacity: 0.1, fillColor: '#ffff00' }, pointToLayer: function (f, ll) { return L.circleMarker(ll, { radius: 11, color: '#ffff00', weight: 3, fill: false, interactive: false }); } }).addTo(map);
-  }
+  // ======================= tap cards (js/cards.js draws them) =======================
+  GC.closeInspector = function () { if (GC.card) GC.card.close(); };
+
   function posRows(lon, lat) { return [['Position', lat.toFixed(6) + ', ' + lon.toFixed(6)], ['MGA2020', Geo.fmt([lon, lat], 'mga')]]; }
   function measure(g) {
     var rows = [];
@@ -217,7 +193,7 @@
     var cp = [e.containerPoint.x, e.containerPoint.y], lp = e.layerPoint, ls = GC.project.layers.slice().reverse();
     for (var i = 0; i < ls.length; i++) {
       var l = ls[i], v = GC.views[l.id]; if (!l.visible || !v) continue;
-      if (l.kind === 'drawing') { var el = GC.hitItem(l, cp); if (el && el.type !== 'marker') { GC.inspectItem(l, el); return; } continue; }
+      if (l.kind === 'drawing') { var el = GC.hitItem(l, cp); if (el && el.type !== 'marker') { GC.inspectItem(l, el, e.latlng); return; } continue; }
       var hit = null, hitPt = null; // a placemark icon wins over the lines and areas under it
       var walk = function (x) {
         if (x.eachLayer) { x.eachLayer(walk); return; }
@@ -231,7 +207,7 @@
       hit = hitPt || hit;
       if (hit) {
         if (hit.feature) GC.inspectFeature(l, hit.feature, e.latlng);
-        else if (hit._gcTrack) GC.inspectTrack(l, hit._gcTrack);
+        else if (hit._gcTrack) GC.inspectTrack(l, hit._gcTrack, e.latlng);
         else if (hit._gcWp) GC.inspectWaypoint(l, hit._gcWp);
         else continue;
         return;
@@ -242,7 +218,7 @@
     GC.closeInspector();
   };
   // ---------- Google Earth style balloons ----------
-  var balloon = null, kmzCache = {};
+  var kmzCache = {};
   function descText(d) { return d == null ? '' : (typeof d === 'object' ? (d.value || '') : String(d)); }
   function looksHtml(t) { return /<\/?[a-z][\s\S]*?>|&[a-z#0-9]+;/i.test(t); }
   function linkify(t) { return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
@@ -330,49 +306,46 @@
     var bb = Importers.bounds({ type: 'FeatureCollection', features: [f] });
     return isFinite(bb[0]) ? L.latLng((bb[1] + bb[3]) / 2, (bb[0] + bb[2]) / 2) : null;
   }
-  function footer(l, f, ll) {
+  /** Length, area and position of a feature, for the card's details line. */
+  function metaLine(f, ll) {
     var g = f.geometry, bits = [];
     measure(g && g.type === 'GeometryCollection' ? g.geometries[0] : g).forEach(function (r) { if (r[0] !== 'Position') bits.push(r[0] === 'MGA2020' ? r[1] : r[0] + ' ' + r[1]); });
     if (g && g.type === 'Point') bits.unshift(g.coordinates[1].toFixed(6) + ', ' + g.coordinates[0].toFixed(6));
     else if (ll && g) bits.push('Tapped at ' + Geo.fmt([ll.lng, ll.lat], 'mga'));
-    return '<div class="gb-foot">' + esc(bits.join(' · ')) + (bits.length ? '<br>' : '') + esc(l.name) + '<br><button data-a="zoom">Zoom to</button><button data-a="hide">Hide</button></div>';
+    return bits.join(' · ');
   }
-  /** Opens the balloon of a vector feature, as Google Earth does when a placemark is clicked. */
+  /** Opens a vector feature's card, with its Google Earth balloon content (description, data, photos). */
   function openBalloon(l, f, ll, tapped) {
     GC.closeInspector();
     var idx = l.geojson.features.indexOf(f), p = f.properties || {}, name = idx >= 0 ? GC.featName(l, idx) : (p.name || 'Feature');
     var tplI = l.featBalloon && idx >= 0 ? l.featBalloon[idx] : null, tpl = tplI != null && l.balloons ? l.balloons[tplI] : null;
     var desc = descText(p.description), rows = dataRows(l, p), sz = map.getSize(), side = document.body.classList.contains('no-sidebar') ? 0 : 350;
-    var maxW = Math.max(220, Math.min(560, sz.x - side - 110)); // room beside the sidebar
-    var root = document.createElement('div'), html = tpl ? expandBalloon(tpl, l, p, name) : (desc && looksHtml(desc) ? desc : null);
-    var pop = L.popup({ className: 'gc-balloon', maxWidth: maxW + 40, minWidth: 180, maxHeight: Math.round(sz.y * 0.62), autoPanPaddingTopLeft: L.point(side + 20, 140), autoPanPaddingBottomRight: L.point(30, 70) });
-    var refit = function () { if (!map.hasLayer(pop)) return; pop._updateLayout(); pop._updatePosition(); pop._adjustPan(); };
+    var maxW = Math.max(240, Math.min(560, sz.x - side - 110)); // room beside the sidebar
+    var body = document.createElement('div'), html = tpl ? expandBalloon(tpl, l, p, name) : (desc && looksHtml(desc) ? desc : null);
     var table = '<table class="gb-data">' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + linkify(r[1]) + '</td></tr>'; }).join('') + '</table>';
     // No separate heading when the description already opens with the name (it would show twice).
     var opensWithName = html && new DOMParser().parseFromString(html, 'text/html').body.textContent.trim().indexOf(name) === 0;
-    root.innerHTML = (tpl || opensWithName ? '' : '<div class="gb-title">' + esc(name) + '</div>') + '<div class="gb-html"></div>' +
+    var meta = metaLine(f, tapped ? ll : null);
+    body.innerHTML = '<div class="gb-html"></div>' +
       (!tpl && rows.length ? (html ? '<details class="gb-more"><summary>Data (' + rows.length + ')</summary>' + table + '</details>' : table) : '') +
       (!html && desc ? '<div class="gb-text' + (rows.length ? ' note' : '') + '">' + linkify(desc) + '</div>' : '') +
-      '<div class="gb-photos"></div>' + footer(l, f, tapped ? ll : null);
-    if (html) resolveKmz(l, html).then(function (h) { root.querySelector('.gb-html').appendChild(htmlFrame(h, maxW, refit)); });
-    var det = root.querySelector('details'); if (det) det.addEventListener('toggle', refit);
-    var paintPhotos = function () {
-      var refs = (l.featPhotos && l.featPhotos[idx]) || [], box = root.querySelector('.gb-photos');
-      var save = function (left) { l.featPhotos = l.featPhotos || {}; if (left.length) l.featPhotos[idx] = left; else delete l.featPhotos[idx]; GC.markDirty(l.id); GC.refreshLayers(); paintPhotos(); };
-      GC.photos.strip(box, refs, idx < 0 ? {} : { onAdd: function () { GC.photos.pick().then(function (more) { if (more.length) save(refs.concat(more)); }); }, onChange: save });
-      Array.prototype.forEach.call(box.querySelectorAll('img'), function (im) { im.addEventListener('load', refit); });
-      setTimeout(refit, 250);
-    };
-    paintPhotos();
-    root.querySelector('[data-a=zoom]').onclick = function () { var b = GC.folderBounds(l, idx); if (b) { if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 18)); else map.fitBounds(b, { padding: [80, 80], maxZoom: 19 }); } };
-    root.querySelector('[data-a=hide]').onclick = function () { map.closePopup(pop); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); };
-    highlight(f);
-    GC.selFeat = { lid: l.id, idx: idx };
+      (meta ? '<div class="gc-meta">' + esc(meta) + '</div>' : '');
+    var tapAt = ll || anchorOf(f) || map.getCenter();
+    var row = document.querySelector('#layer-list .layer[data-id="' + l.id + '"] [data-n="p' + idx + '"]');
     Array.prototype.forEach.call(document.querySelectorAll('#layer-list .tn.sel'), function (x) { x.classList.remove('sel'); });
-    var row = document.querySelector('#layer-list .layer[data-id="' + l.id + '"] [data-n="p' + idx + '"]'); if (row) row.classList.add('sel');
-    pop.on('remove', function () { if (balloon === pop) { balloon = null; GC.selFeat = null; if (hl) { map.removeLayer(hl); hl = null; } if (row) row.classList.remove('sel'); } });
-    balloon = pop;
-    pop.setLatLng(ll || anchorOf(f) || map.getCenter()).setContent(root).openOn(map);
+    if (row) row.classList.add('sel');
+    GC.selFeat = { lid: l.id, idx: idx };
+    var refs = (l.featPhotos && l.featPhotos[idx]) || [];
+    var c = GC.card.open({
+      ll: tapAt, title: name, hideTitle: !!(tpl || opensWithName), sub: l.name + ' · ' + (GC.kindLabel(l) || 'GIS'), body: body, maxW: maxW,
+      target: f.geometry, at: f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : [tapAt.lng, tapAt.lat], highlight: f, zoom: GC.folderBounds(l, idx),
+      photos: idx < 0 ? null : { refs: refs, onChange: function (left) { l.featPhotos = l.featPhotos || {}; if (left.length) l.featPhotos[idx] = left; else delete l.featPhotos[idx]; GC.markDirty(l.id); GC.refreshLayers(); } },
+      note: idx < 0 ? null : { text: (l.featNotes && l.featNotes[idx]) || '', save: function (t) { l.featNotes = l.featNotes || {}; if (t) l.featNotes[idx] = t; else delete l.featNotes[idx]; GC.markDirty(l.id); } },
+      more: [{ label: 'Hide this feature', fn: function () { GC.closeInspector(); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); } }],
+      onClose: function () { if (GC.selFeat && GC.selFeat.lid === l.id && GC.selFeat.idx === idx) GC.selFeat = null; if (row) row.classList.remove('sel'); }
+    });
+    if (html) resolveKmz(l, html).then(function (h) { body.querySelector('.gb-html').appendChild(htmlFrame(h, maxW, c.refit)); });
+    var det = body.querySelector('details'); if (det) det.addEventListener('toggle', c.refit);
   }
   GC.inspectFeature = function (l, f, ll) { openBalloon(l, f, ll, true); };
   /** From the Places tree: fly to a placemark and open its balloon. */
@@ -383,47 +356,56 @@
     if (b) { if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 17), { animate: false }); else if (!map.getBounds().contains(b)) map.fitBounds(b, { padding: [80, 80], maxZoom: 18, animate: false }); }
     openBalloon(l, f, a);
   };
-  GC.inspectItem = function (l, el) {
-    var rows = [['Layer', l.name], ['Created', GC.fmtTime(el.created || Date.now())]], actions = [], title, photos = null;
+  function rowsHtml(rows) { return '<table class="gb-data">' + rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>'; }
+  GC.inspectItem = function (l, el, tapLL) {
+    var rows = [['Layer', l.name], ['Created', GC.fmtTime(el.created || Date.now())]], more = [], title, photos = null, note = null, target, at;
     if (el.type === 'stroke') {
       title = Ink.INKS[el.ink].label + ' stroke';
       rows.push(['Length', GC.fmtDist(Geo.pathLength(el.pts))], ['Ink width', (el.width * Geo.metersPerPixel(el.z0, el.pts[0][1])).toFixed(2) + ' m on the ground'], ['Points', String(el.pts.length)]);
-      rows = rows.concat(posRows(el.pts[0][0], el.pts[0][1]).map(function (r) { r[0] = 'Starts at' + (r[0] === 'MGA2020' ? ' (MGA)' : ''); return r; }));
+      target = { type: 'LineString', coordinates: el.pts.map(function (q) { return [q[0], q[1]]; }) };
     } else if (el.type === 'shape') {
       title = el.kind.charAt(0).toUpperCase() + el.kind.slice(1);
       var o = Ink.shapeOutline(el).map(function (m) { return Geo.unmerc(m[0], m[1]); });
-      if (Ink.isClosed(el)) { var ring = o.concat([o[0]]); rows.push(['Area', GC.fmtArea(Math.abs(Geo.ringArea(ring)))], ['Perimeter', GC.fmtDist(Geo.pathLength(ring))]); }
-      else rows.push(['Length', GC.fmtDist(Geo.pathLength(o))]);
-      if (el.kind === 'line' || el.kind === 'arrow') { var a = o[0], b = o[o.length - 1], y = Math.sin((b[0] - a[0]) * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180), x = Math.cos(a[1] * Math.PI / 180) * Math.sin(b[1] * Math.PI / 180) - Math.sin(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.cos((b[0] - a[0]) * Math.PI / 180); rows.push(['Bearing', ((Math.atan2(y, x) * 180 / Math.PI + 360) % 360).toFixed(1) + '° true']); }
+      if (Ink.isClosed(el)) { var ring = o.concat([o[0]]); rows.push(['Area', GC.fmtArea(Math.abs(Geo.ringArea(ring)))], ['Perimeter', GC.fmtDist(Geo.pathLength(ring))]); target = { type: 'Polygon', coordinates: [ring] }; }
+      else { rows.push(['Length', GC.fmtDist(Geo.pathLength(o))]); target = { type: 'LineString', coordinates: o }; }
+      if (el.kind === 'line' || el.kind === 'arrow') rows.push(['Bearing', Geo.bearing(o[0], o[o.length - 1]).toFixed(1) + '° true']);
     } else if (el.type === 'text') {
-      title = '“' + el.text + '”'; rows = rows.concat(posRows(el.at[0], el.at[1]));
-      if (!l.locked) actions.push({ label: 'Edit text', fn: function () { GC.closeInspector(); GC.editText(l, el); } });
+      title = '“' + el.text + '”'; at = el.at;
+      if (!l.locked) more.push({ label: 'Edit text', fn: function () { GC.closeInspector(); GC.editText(l, el); } });
     } else {
-      title = el.title || (GC.SYMBOLS[el.symbol] || GC.SYMBOLS.pin).label;
-      if (el.note) rows.push(['Note', el.note]);
-      rows = rows.concat(posRows(el.at[0], el.at[1]));
-      if (!l.locked) actions.push({ label: 'Edit marker', fn: function () { GC.closeInspector(); GC.editMarker(l, el); } });
-      photos = { refs: el.photos || [], onChange: l.locked ? null : function (refs) { // markers are immutable: replace it (undoable)
+      title = el.title || (GC.SYMBOLS[el.symbol] || GC.SYMBOLS.pin).label; at = el.at;
+      if (!l.locked) more.push({ label: 'Edit marker', fn: function () { GC.closeInspector(); GC.editMarker(l, el); } });
+      // markers are immutable: a change replaces it (undoable)
+      var replace = function (fn) {
         var cur = l.items.filter(function (x) { return x.id === el.id; })[0]; if (!cur) return;
-        GC.editLayer(l.id, function (items) { return items.map(function (x) { if (x !== cur) return x; var c = JSON.parse(JSON.stringify(Ink.stripCache(x))); if (refs.length) c.photos = refs; else delete c.photos; el = c; return c; }); });
-      } };
+        GC.editLayer(l.id, function (items) { return items.map(function (x) { if (x !== cur) return x; var c = JSON.parse(JSON.stringify(Ink.stripCache(x))); fn(c); el = c; return c; }); });
+      };
+      photos = { refs: el.photos || [], onChange: l.locked ? null : function (refs) { replace(function (c) { if (refs.length) c.photos = refs; else delete c.photos; }); } };
+      note = l.locked ? null : { text: el.note || '', save: function (t) { replace(function (c) { if (t) c.note = t; else delete c.note; }); } };
     }
-    if (!l.locked) actions.push({ label: 'Delete', danger: true, fn: function () { GC.closeInspector(); GC.editLayer(l.id, function (items) { return items.filter(function (x) { return x.id !== el.id; }); }); GC.toast('Deleted. Undo is available.'); } });
-    if (hl) { map.removeLayer(hl); hl = null; }
-    openInspector(title, el.type === 'marker' ? 'Marker' : 'Drawn ' + el.type, rows, actions, photos);
+    if (!l.locked) more.push({ label: 'Delete', danger: true, fn: function () { GC.closeInspector(); GC.editLayer(l.id, function (items) { return items.filter(function (x) { return x.id !== el.id; }); }); GC.toast('Deleted. Undo is available.'); } });
+    var first = function (g) { var c = g.coordinates; while (typeof c[0] !== 'number') c = c[0]; return L.latLng(c[1], c[0]); };
+    var anchor = at ? L.latLng(at[1], at[0]) : (tapLL || first(target));
+    GC.card.open({ ll: anchor, title: title, sub: l.name + ' · ' + (el.type === 'marker' ? 'marker' : 'drawn ' + el.type), body: rowsHtml(rows), target: target, at: at || [anchor.lng, anchor.lat],
+      photos: photos, note: note, more: more, highlight: target && target.type !== 'Point' ? target : null, zoom: target ? GC.card.boundsOf(target) : L.latLngBounds(anchor, anchor) });
   };
-  GC.inspectTrack = function (l, t) {
-    var dur = t.points.length > 1 ? (t.points[t.points.length - 1][2] - t.points[0][2]) / 1000 : 0;
-    highlight({ type: 'LineString', coordinates: t.points.map(function (p) { return [p[0], p[1]]; }) });
-    openInspector(t.name, l.name, [['Distance', GC.fmtDist(t.distance || 0)], ['Points', String(t.points.length)], ['Started', GC.fmtTime(t.points[0] ? t.points[0][2] : Date.now())], ['Duration', Math.floor(dur / 3600) + ' h ' + Math.round(dur / 60) % 60 + ' min']]);
+  GC.inspectTrack = function (l, t, tapLL) {
+    var dur = t.points.length > 1 ? (t.points[t.points.length - 1][2] - t.points[0][2]) / 1000 : 0, g = { type: 'LineString', coordinates: t.points.map(function (p) { return [p[0], p[1]]; }) };
+    var anchor = tapLL || L.latLng(t.points[0][1], t.points[0][0]);
+    GC.card.open({ ll: anchor, title: t.name, sub: l.name + ' · GPS track', target: g, highlight: g, zoom: GC.card.boundsOf(g),
+      body: rowsHtml([['Distance', GC.fmtDist(t.distance || 0)], ['Points', String(t.points.length)], ['Started', GC.fmtTime(t.points[0] ? t.points[0][2] : Date.now())], ['Duration', Math.floor(dur / 3600) + ' h ' + Math.round(dur / 60) % 60 + ' min']]) });
   };
   GC.inspectWaypoint = function (l, w) {
-    var rows = [['Time', GC.fmtTime(w.time)]].concat(posRows(w.lon, w.lat));
-    if (w.note) rows.unshift(['Note', w.note]);
+    var rows = [['Time', GC.fmtTime(w.time)]];
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
-    openInspector(w.name || 'Waypoint', l.name, rows, l.locked ? [] : [{ label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }],
-      { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } });
+    var ll = L.latLng(w.lat, w.lon);
+    GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · waypoint', body: rowsHtml(rows), at: [w.lon, w.lat], zoom: L.latLngBounds(ll, ll),
+      photos: { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } },
+      note: l.locked ? null : { text: w.note || '', save: function (t) { w.note = t; GC.renderLayer(l); GC.markDirty(l.id); } },
+      more: l.locked ? [] : [
+        { label: 'Rename', fn: function () { GC.prompt('Rename waypoint', w.name || '', 'Name', 'Rename').then(function (n) { if (!n) return; w.name = n; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.inspectWaypoint(l, w); }); } },
+        { label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }] });
   };
 
   // ======================= GPS =======================
@@ -465,6 +447,7 @@
     if (gps.follow) map.panTo(ll, { animate: true });
     if (gps.rec) recordPoint(gps.fix);
     renderGpsData();
+    if (GC.nav && GC.nav.isOn()) GC.nav.update();
   }
   function renderGpsData() {
     var f = gps.fix; if (!f) { $('gps-data').innerHTML = ''; return; }
@@ -479,7 +462,7 @@
   $('btn-gps').onclick = function () {
     var p = $('gps-panel');
     if (!p.hidden) { p.hidden = true; return; }
-    $('inspector').hidden = true; if (GC.measure && GC.measure.isOn()) GC.measure.close(); p.hidden = false; startGPS(); renderGpsData();
+    GC.closeInspector(); if (GC.measure && GC.measure.isOn()) GC.measure.close(); p.hidden = false; startGPS(); renderGpsData();
     if (gps.fix) map.setView([gps.fix.lat, gps.fix.lon], Math.max(map.getZoom(), 16));
   };
   $('gps-follow').onclick = function () {
@@ -487,8 +470,11 @@
     if (gps.follow && gps.fix) map.panTo([gps.fix.lat, gps.fix.lon]);
   };
   map.on('dragstart', function () { if (gps.follow) { gps.follow = false; $('gps-follow').classList.remove('primary'); $('gps-follow').textContent = 'Follow me'; } });
-  $('gps-compass').onclick = function () {
+  $('gps-compass').onclick = function (quiet) {
+    if (gps.compassOn) return;
+    var warn = function (m) { if (quiet !== true) GC.toast(m, 'warn'); };
     var on = function () {
+      gps.compassOn = true;
       window.addEventListener('deviceorientation', function (e) {
         var h = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? 360 - e.alpha : null);
         if (h == null) return;
@@ -497,9 +483,11 @@
       }, true);
       $('gps-compass').classList.add('primary'); $('gps-compass').textContent = 'Compass on';
     };
-    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') DeviceOrientationEvent.requestPermission().then(function (s) { if (s === 'granted') on(); else GC.toast('Compass permission was not granted.', 'warn'); }, function () { GC.toast('Compass is not available.', 'warn'); });
-    else if (window.DeviceOrientationEvent) on(); else GC.toast('This device has no compass.', 'warn');
+    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') DeviceOrientationEvent.requestPermission().then(function (s) { if (s === 'granted') on(); else warn('Compass permission was not granted.'); }, function () { warn('Compass is not available.'); });
+    else if (window.DeviceOrientationEvent) on(); else warn('This device has no compass.');
   };
+  /** GPS for other tools (Go): start it, read the latest fix and compass heading, turn the compass on (needs a tap on iPad). */
+  GC.gps = { start: startGPS, fix: function () { return gps.fix; }, heading: function () { return gps.heading; }, compass: function () { if (!gps.compassOn) $('gps-compass').onclick(true); } }; // quiet: Go still works without it
   function recordPoint(f) {
     var t = gps.rec.track, pts = t.points, last = pts[pts.length - 1];
     if (f.acc > 50) return; // filter poor fixes
@@ -546,23 +534,34 @@
   // ======================= search =======================
   var searchMarker = null;
   $('btn-search').onclick = function () {
-    GC.modal('<h2>Search</h2><p class="sub">A place or address, a lot/plan (“3RP123456” or “Lot 3 on RP123456”), or coordinates: “-27.56, 151.95”, “27°33′S 151°57′E” or MGA “56 396000 6951000”.</p>' +
-      '<div style="display:flex;gap:8px"><input type="text" id="s-q" placeholder="e.g. Picnic Point, Toowoomba" style="flex:1"><button class="btn primary" id="s-go">Search</button></div><div class="list" id="s-res"></div>',
+    GC.modal('<h2>Search</h2><p class="sub">Your own data (valves, pits, lots, markers, waypoints…), a place or address, a lot/plan (“3RP123456”), or coordinates: “-27.56, 151.95” or MGA “56 396000 6951000”.</p>' +
+      '<div style="display:flex;gap:8px"><input type="search" id="s-q" placeholder="e.g. PHW-AV-002, thrust block 14, Picnic Point" style="flex:1" autocomplete="off"><button class="btn primary" id="s-go">Search</button></div><div id="s-mine"></div><div class="list" id="s-res"></div>',
       function (el, close) {
-        var q = el.querySelector('#s-q'), res = el.querySelector('#s-res');
+        var q = el.querySelector('#s-q'), res = el.querySelector('#s-res'), mine = el.querySelector('#s-mine');
+        var local = function () {
+          var list = GC.findInProject ? GC.findInProject(q.value) : [];
+          mine.innerHTML = list.length ? '<div class="pop-title small">In this project</div><div class="list">' + list.map(function (r, i) {
+            return '<div class="item s-mine"><button class="grow" data-o="' + i + '"><b>' + esc(r.name) + '</b><small>' + esc(r.sub) + '</small></button><button class="btn" data-g="' + i + '" title="Guide me there from my GPS position">Go</button></div>';
+          }).join('') + '</div>' : '';
+          [].forEach.call(mine.querySelectorAll('[data-o]'), function (b) { b.onclick = function () { close(); list[+b.getAttribute('data-o')].open(); }; });
+          [].forEach.call(mine.querySelectorAll('[data-g]'), function (b) { b.onclick = function () { var r = list[+b.getAttribute('data-g')]; close(); GC.nav.go({ name: r.name, geometry: r.target }); }; });
+          return list;
+        };
+        var t0 = null; q.oninput = function () { clearTimeout(t0); res.innerHTML = ''; t0 = setTimeout(local, 150); };
         var go = function () {
           var text = q.value.trim(); if (!text) return;
+          var found = local();
           var ll = Geo.parseCoordinate(text);
           if (ll) { close(); flyTo(ll[1], ll[0], text); return; }
           var lot = GC.cadastre && GC.cadastre.find(text); // lot/plan, e.g. 3RP123456 or "Lot 3 on RP123456"
           if (lot) { res.innerHTML = '<p class="hint">Looking up the lot…</p>'; lot.then(function () { close(); }, function (e) { res.innerHTML = '<p class="fail">' + esc(e.message) + '</p>'; }); return; }
-          res.innerHTML = '<p class="hint">Searching…</p>';
+          res.innerHTML = '<p class="hint">' + (found.length ? 'Also searching places…' : 'Searching places…') + '</p>';
           var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=au&viewbox=151.3,-27.0,152.6,-28.1&q=' + encodeURIComponent(text);
           fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); }).then(function (list) {
-            if (!list.length) { res.innerHTML = '<p class="hint">No results. Try adding “Toowoomba” or “QLD”.</p>'; return; }
-            res.innerHTML = list.map(function (x, i) { return '<button class="item" data-i="' + i + '"><div class="grow"><b>' + esc(x.name || x.display_name.split(',')[0]) + '</b><small>' + esc(x.display_name) + '</small></div></button>'; }).join('');
+            if (!list.length) { res.innerHTML = found.length ? '' : '<p class="hint">No results. Try adding “Toowoomba” or “QLD”.</p>'; return; }
+            res.innerHTML = '<div class="pop-title small">Places</div>' + list.map(function (x, i) { return '<button class="item" data-i="' + i + '"><div class="grow"><b>' + esc(x.name || x.display_name.split(',')[0]) + '</b><small>' + esc(x.display_name) + '</small></div></button>'; }).join('');
             Array.prototype.forEach.call(res.querySelectorAll('[data-i]'), function (b) { b.onclick = function () { var x = list[+b.getAttribute('data-i')]; close(); flyTo(+x.lat, +x.lon, x.name || x.display_name, x.boundingbox); }; });
-          }).catch(function () { res.innerHTML = '<p class="fail">Search needs an internet connection. Coordinates work offline.</p>'; });
+          }).catch(function () { res.innerHTML = found.length ? '' : '<p class="fail">Place search needs an internet connection. Your own data and coordinates work offline.</p>'; });
         };
         el.querySelector('#s-go').onclick = go; q.onkeydown = function (e) { if (e.key === 'Enter') go(); };
         setTimeout(function () { q.focus(); }, 50);

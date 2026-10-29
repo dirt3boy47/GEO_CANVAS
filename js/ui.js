@@ -114,13 +114,13 @@
     tool('i-plus', 'Add', 'Import a file (KML/KMZ, GeoPDF, shapefile, DXF, GeoTIFF, GPX, GeoJSON, PDF or photo plans), open My maps or Online maps, or start a new drawing layer.') +
     tool('i-layers', 'Map', 'Choose the background, turn on lot boundaries, darken the imagery, and save areas for offline use.') +
     tool('i-ruler', 'Measure', 'Lengths, areas and bearings; freehand traces a winding line. Points snap to lot corners and drawing corners.') +
-    tool('i-search', 'Search', 'Places, coordinates (decimal, DMS or MGA) and lots (“3RP123456”).') +
+    tool('i-search', 'Search', 'Your own data first (“PHW-AV-002”, “thrust block 13”) with a Go button, then places, coordinates (decimal, DMS or MGA) and lots (“3RP123456”).') +
     tool('i-gps', 'GPS', 'Your position, track recording and waypoints with photos.') +
     tool('i-export', 'Share', 'Export KML/KMZ, GeoJSON, GPX, GeoTIFF, PNG or a print view, or back up the project.') +
     tool('i-cloud', 'Team & cloud', 'Green dot: saved. Blue: saving. Orange: offline with changes waiting. Red: a problem (tap for details). Join or create a team here.') +
     '</div>';
   var START = '<ol class="hp-steps hp-start">' +
-    '<li><b>Move around and look</b><small>In <b>Navigate</b>, drag and pinch. Tap a pipe, valve or lot to see its details.</small></li>' +
+    '<li><b>Move around and look</b><small>In <b>Navigate</b>, drag and pinch. Tap a pipe, valve or lot for its card: <b>Go</b> guides you there from your GPS position, plus Measure, Photo, Note and Copy coordinates.</small></li>' +
     '<li><b>Bring in your maps and data</b><small><b>Add</b> imports KMZ, shapefiles, GeoPDF topo sheets, DXF and plans. Topo sheets go into <b>My maps</b>, shared with the team.</small></li>' +
     '<li><b>Mark up the ground</b><small>Switch to <b>Draw</b> and write with Apple Pencil: notes stay pinned to the place. <b>Measure</b> gives lengths and areas.</small></li>' +
     '<li><b>Work with the team</b><small>Tap ☁ to join your team: projects and maps then save to the cloud by themselves and open on every device.</small></li>' +

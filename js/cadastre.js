@@ -115,24 +115,16 @@
   map.on('moveend zoomend', function () { if (!on()) return; clearTimeout(timer); timer = setTimeout(load, 250); });
 
   // ---------- parcel balloon ----------
-  var hl = null, pop = null;
   function showParcel(f, ll) {
     if (GC.closeInspector) GC.closeInspector();
-    if (hl) map.removeLayer(hl);
-    hl = L.geoJSON(f, { interactive: false, style: { color: '#00e5ff', weight: 4, opacity: 0.95, fillColor: '#00e5ff', fillOpacity: 0.12 } }).addTo(map);
     var p = f.properties || {}, a = prop(p, ['lot_area']) || areaOf(f.geometry);
     var skip = /^(objectid|shape.*|st_area.*|st_length.*|se_anno.*|globalid|fid)$/i;
     var rows = Object.keys(p).filter(function (k) { return !skip.test(k) && p[k] != null && p[k] !== '' && p[k] !== ' '; }).map(function (k) { return [k, String(p[k])]; });
-    var root = document.createElement('div');
-    root.innerHTML = '<div class="gb-title">' + esc(title(p)) + '</div>' +
-      '<table class="gb-data"><tr><td>Lot/plan</td><td>' + esc(lotplan(p)) + '</td></tr><tr><td>Area</td><td>' + esc(GC.measure ? GC.measure.fmtArea(+a) : Math.round(a) + ' m²') + '</td></tr>' +
-      rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>' +
-      '<div class="gb-foot">Queensland cadastre (DCDB), a guide only, not a survey.<br><button data-a="zoom">Zoom to</button><button data-a="add">Add to project</button></div>';
-    root.querySelector('[data-a=zoom]').onclick = function () { map.fitBounds(hl.getBounds(), { padding: [60, 60], maxZoom: 19 }); };
-    root.querySelector('[data-a=add]').onclick = function () { addToProject(f); map.closePopup(pop); };
-    pop = L.popup({ className: 'gc-balloon', maxWidth: 380, maxHeight: Math.round(map.getSize().y * 0.6), autoPanPaddingTopLeft: L.point(document.body.classList.contains('no-sidebar') ? 30 : 370, 140) })
-      .setLatLng(ll || hl.getBounds().getCenter()).setContent(root).openOn(map);
-    pop.on('remove', function () { if (hl) { map.removeLayer(hl); hl = null; } });
+    var body = '<table class="gb-data"><tr><td>Lot/plan</td><td>' + esc(lotplan(p)) + '</td></tr><tr><td>Area</td><td>' + esc(GC.measure ? GC.measure.fmtArea(+a) : Math.round(a) + ' m²') + '</td></tr>' +
+      rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</table>';
+    var b = L.geoJSON(f).getBounds(), at = ll || b.getCenter();
+    GC.card.open({ ll: at, title: title(p), sub: 'Lot boundaries · QLD cadastre, a guide only (not a survey)', body: body, target: f.geometry, at: [at.lng, at.lat], highlight: f, zoom: b,
+      more: [{ label: 'Add this lot to the project', fn: function () { addToProject(f); GC.closeInspector(); } }] });
   }
   /** Copies a parcel into the project (a GIS layer "Lot boundaries") to keep, measure, export or use as a reference. */
   function addToProject(f) {
