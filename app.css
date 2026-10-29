@@ -1,6 +1,6 @@
 /* GeoCanvas web — layout: full-bleed map; floating frosted panels anchored to the safe-area edges. */
 :root {
-  --panel: rgba(250, 251, 248, 0.86);
+  --panel: rgba(250, 251, 248, 0.86); --panel-moving: rgba(250, 251, 248, 0.95);
   --panel-solid: #f6f7f3;
   --ink: #17201c;
   --muted: #5c6862;
@@ -18,7 +18,7 @@
   --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --panel: rgba(22, 28, 25, 0.86); --panel-solid: #1a211d; --ink: #e9efe9; --muted: #9aa8a0; --line: rgba(233, 239, 233, 0.12);
+  :root { --panel: rgba(22, 28, 25, 0.86); --panel-moving: rgba(22, 28, 25, 0.95); --panel-solid: #1a211d; --ink: #e9efe9; --muted: #9aa8a0; --line: rgba(233, 239, 233, 0.12);
     --accent: #3fbf96; --accent-ink: #06261c; --chip: rgba(233, 239, 233, 0.08); --shadow: 0 6px 24px rgba(0, 0, 0, 0.5); color-scheme: dark; }
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -37,6 +37,9 @@ body.draw #crosshair { display: none; }
 
 .panel { background: var(--panel); -webkit-backdrop-filter: saturate(1.4) blur(18px); backdrop-filter: saturate(1.4) blur(18px);
   border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: var(--r); }
+/* While the map moves, Safari would have to re-blur everything behind each panel on every frame: switch the blur off
+   (the panels turn a touch more solid instead) and back on when the map stops. */
+body.moving .panel { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--panel-moving); }
 .ib { width: 42px; height: 42px; border: 0; background: transparent; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
 .ib:hover { background: var(--chip); }
 .ib:disabled { opacity: .35; }

@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.8' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.9' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -88,6 +88,10 @@
     boxZoom: false, bounceAtZoomLimits: false, attributionControl: false });
   L.control.attribution({ position: 'bottomleft', prefix: '<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>' }).addTo(map);
   L.control.scale({ imperial: false, position: 'bottomleft', maxWidth: 140 }).addTo(map);
+  // panels drop their blur while the map moves (see body.moving in app.css): smoother panning on iPad
+  var stillT = null;
+  map.on('movestart zoomstart', function () { clearTimeout(stillT); document.body.classList.add('moving'); });
+  map.on('moveend zoomend', function () { clearTimeout(stillT); stillT = setTimeout(function () { document.body.classList.remove('moving'); }, 150); });
   map.setView(TOOWOOMBA, 14);
 
   // ---------- basemaps ----------
@@ -115,7 +119,7 @@
     baseLayers = []; baseKey = key;
     var def = GC.BASEMAPS[key];
     def.layers.forEach(function (d, i) {
-      var o = Object.assign({ maxZoom: 22, keepBuffer: 3, updateWhenZooming: false }, d.o);
+      var o = Object.assign({ maxZoom: 22, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: false }, d.o); // tablets otherwise wait for the pan to end
       if (d.qld && opts.noCors) delete o.crossOrigin;
       var tl = L.tileLayer(d.url, o).addTo(map);
       tl.setZIndex(i);

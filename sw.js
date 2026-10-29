@@ -1,9 +1,10 @@
 /* GeoCanvas service worker: the app works offline after the first visit.
-   App files: network first, so a new version shows as soon as it is online; the cached copy is used offline
-   (or when the network takes more than 4 s).
+   App files: straight from this version's saved copy, so the app opens at once even on a weak signal. Every release
+   changes SHELL below, so the browser installs the new service worker (fetching the new files) in the background and
+   the page reloads into it (js/panels.js); files missing from the copy come from the network.
    Queensland imagery, lot-boundary and Map library tiles: saved offline areas ("gc-offline", never trimmed) first; imagery seen while
    browsing is kept in "gc-tiles" (trimmed to the newest tiles). Downloads for offline areas (cache: no-store) pass straight through. */
-var SHELL = 'gc-shell-v24'; // GeoCanvas 2026-10-29.8
+var SHELL = 'gc-shell-v25'; // GeoCanvas 2026-10-29.9
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
   'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/cards.js', 'js/camera.js', 'js/register.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/geopdf.js', 'js/cad.js', 'js/library.js', 'js/mymaps.js', 'js/offline.js', 'js/ui.js', 'js/phone.js', 'js/cloud.js',
@@ -27,12 +28,12 @@ self.addEventListener('fetch', function (e) {
   if (url.origin === self.location.origin && /\/api\//.test(url.pathname)) return; // cloud sync: always live
   if (url.origin === self.location.origin) {
     e.respondWith(caches.open(SHELL).then(function (c) {
-      var cached = function () { return c.match(req, { ignoreSearch: true }).then(function (hit) { return hit || c.match('index.html'); }); };
-      var net = fetch(req).then(function (r) { if (r && r.ok && r.type === 'basic') c.put(req, r.clone()); return r; });
-      return new Promise(function (resolve) {
-        var done = false, finish = function (r) { if (!done && r) { done = true; resolve(r); } };
-        var slow = setTimeout(function () { cached().then(finish); }, 4000);
-        net.then(function (r) { clearTimeout(slow); finish(r); }, function () { clearTimeout(slow); cached().then(function (h) { finish(h || Response.error()); }); });
+      var nav = req.mode === 'navigate';
+      // pages: the saved './' (not 'index.html': the server redirects that to '/', and a redirected answer can't open a page)
+      return c.match(nav ? './' : req, { ignoreSearch: true }).then(function (hit) {
+        if (hit) return hit;
+        return fetch(req).then(function (r) { if (r && r.ok && r.type === 'basic' && !nav) c.put(req, r.clone()); return r; },
+          function () { return nav ? c.match('./').then(function (h) { return h || Response.error(); }) : Response.error(); });
       });
     }));
     return;
