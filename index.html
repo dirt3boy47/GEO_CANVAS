@@ -89,7 +89,7 @@
   <button class="tb" id="btn-add" title="Add files and maps" aria-haspopup="true"><svg><use xlink:href="#i-plus"/></svg><span>Add</span></button>
   <button class="tb" id="btn-map" title="Background map, lot boundaries and offline maps" aria-haspopup="true"><svg><use xlink:href="#i-layers"/></svg><span>Map</span></button>
   <button class="tb" id="btn-camera" title="Take a photo and pin it where you are"><svg><use xlink:href="#i-camera"/></svg><span>Camera</span></button>
-  <button class="tb" id="btn-photos" title="Photo register: every photo with its category, importance, checked tick and time taken"><svg><use xlink:href="#i-photos"/></svg><span>Photos</span></button>
+  <button class="tb" id="btn-photos" title="Actions register: every photo, pin and drawn action with its category, importance, checked tick and time"><svg><use xlink:href="#i-photos"/></svg><span>Actions</span></button>
   <button class="tb" id="btn-measure" title="Measure distance and area"><svg><use xlink:href="#i-ruler"/></svg><span>Measure</span></button>
   <button class="tb" id="btn-search" title="Search places, coordinates and lots"><svg><use xlink:href="#i-search"/></svg><span>Search</span></button>
   <button class="tb" id="btn-gps" title="GPS position, tracks and waypoints"><svg><use xlink:href="#i-gps"/></svg><span>GPS</span></button>
@@ -109,6 +109,10 @@
   <button class="menu-row" id="am-mymaps" role="menuitem"><svg><use xlink:href="#i-folder"/></svg><span><b>My maps</b><small>The team’s topo sheets, plans and saved maps</small></span></button>
   <button class="menu-row" id="am-online" role="menuitem"><svg><use xlink:href="#i-globe"/></svg><span><b>Online maps</b><small>Geology, topographic and tenement maps from Geoscience Australia and Queensland</small></span></button>
   <button class="menu-row" id="am-layer" role="menuitem"><svg><use xlink:href="#i-ballpoint"/></svg><span><b>New drawing layer</b><small>A separate layer for Pencil notes, shapes and markers</small></span></button>
+  <div class="menu-head">New action</div>
+  <button class="menu-row" id="am-pin" role="menuitem"><svg><use xlink:href="#i-gpt"/></svg><span><b>Pin at my position</b><small>Category, importance and note; or press and hold the map to pin a spot</small></span></button>
+  <button class="menu-row" id="am-area" role="menuitem"><svg><use xlink:href="#i-gpoly"/></svg><span><b>Draw an action area</b><small>Tap the corners or trace with the Pencil, then Create action</small></span></button>
+  <button class="menu-row" id="am-line" role="menuitem"><svg><use xlink:href="#i-gline"/></svg><span><b>Draw an action line</b><small>A fence, trench or run to fix, then Create action</small></span></button>
 </div>
 <div id="map-panel" class="panel pop" hidden>
   <div class="pop-title">Map <button class="ib" id="mp-close" title="Close" aria-label="Close">&times;</button></div>
@@ -202,12 +206,12 @@
   </div>
 </div>
 <div id="measure-panel" class="panel pop" hidden>
-  <div class="pop-title">Measure <button class="ib" id="ms-close" title="Close measuring" aria-label="Close">&times;</button></div>
+  <div class="pop-title"><span id="ms-title">Measure</span> <button class="ib" id="ms-close" title="Close measuring" aria-label="Close">&times;</button></div>
   <div class="seg" id="ms-mode"><button data-m="line" class="on">Line</button><button data-m="area">Area</button></div>
   <label class="opt"><input type="checkbox" id="ms-free"> Freehand: trace a winding line or outline</label>
   <div id="ms-out"></div>
   <p class="hint" id="ms-hint"></p>
-  <div class="row-btns"><button class="btn" id="ms-undo">Undo</button><button class="btn" id="ms-clear">Clear</button><button class="btn primary" id="ms-save">Save to map</button></div>
+  <div class="row-btns"><button class="btn" id="ms-undo">Undo</button><button class="btn" id="ms-clear">Clear</button><button class="btn" id="ms-save">Save to map</button><button class="btn primary" id="ms-action">Create action</button></div>
 </div>
 <div id="gps-panel" class="panel pop" hidden>
   <div class="pop-title">GPS <span id="gps-badge" class="badge">Off</span></div>

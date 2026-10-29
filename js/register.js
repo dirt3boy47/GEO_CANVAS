@@ -14,7 +14,7 @@
     if (!GC.project || !GC.camera) return out;
     GC.project.layers.forEach(function (l) {
       if (l.kind !== 'waypoints') return;
-      (l.waypoints || []).forEach(function (w) { if (GC.camera.isPhotoPt(l, w) || (w.photos && w.photos.length)) out.push({ l: l, w: w }); });
+      (l.waypoints || []).forEach(function (w) { out.push({ l: l, w: w }); }); // every waypoint is an action: photos, pins, drawn areas and lines
     });
     return out;
   }
@@ -28,7 +28,7 @@
       if ((w.imp | 0) < st.min) return false;
       if (st.chk === 'todo' && w.chk) return false;
       if (st.chk === 'done' && !w.chk) return false;
-      if (q && (w.name + ' ' + (w.note || '') + ' ' + catName(x) + ' ' + cam.impOf(w).n + ' ' + (w.chk ? w.chk.by : '')).toLowerCase().indexOf(q) < 0) return false;
+      if (q && (w.name + ' ' + cam.kindOf(w).k + ' ' + (w.note || '') + ' ' + catName(x) + ' ' + cam.impOf(w).n + ' ' + (w.chk ? w.chk.by : '')).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     var key = {
@@ -50,28 +50,28 @@
     if (!GC.project || !GC.camera) return;
     if (GC.ui) GC.ui.close();
     var cam = GC.camera, IMP = cam.IMP, list = [];
-    var H = [['chk', '✓'], ['', 'Photo'], ['name', 'Name'], ['cat', 'Category'], ['imp', 'Importance'], ['taken', 'Taken'], ['chk', 'Checked'], ['', 'Note'], ['', '']];
-    GC.modal('<div class="rg"><div class="rg-top"><h2>Photo register <small id="rg-count"></small></h2>' +
+    var H = [['chk', '✓'], ['', 'Photo'], ['name', 'Action'], ['cat', 'Category'], ['imp', 'Importance'], ['taken', 'Taken'], ['chk', 'Checked'], ['', 'Note'], ['', '']];
+    GC.modal('<div class="rg"><div class="rg-top"><h2>Actions register <small id="rg-count"></small></h2>' +
       '<div class="rg-tools"><input type="search" id="rg-q" placeholder="Search name, note, who checked…" value="' + esc(st.q) + '">' +
       '<select id="rg-cat">' + catOptions(st.cat, true) + '</select>' +
       '<select id="rg-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === st.min ? ' selected' : '') + '>' + (i === 0 ? 'All importance' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="seg small" id="rg-chk"><button data-c="all">All</button><button data-c="todo">To check</button><button data-c="done">Checked</button></div>' +
-      '<button class="btn" id="rg-csv">Export CSV</button></div></div>' +
+      '<button class="btn" id="rg-csv">Export CSV</button><button class="btn primary" id="rg-new">+ New action</button></div></div>' +
       '<div class="rg-table" role="table"><div class="rg-row rg-head" role="row">' + H.map(function (h) { return '<span role="columnheader"' + (h[0] ? ' data-s="' + h[0] + '"' : '') + '>' + h[1] + '</span>'; }).join('') + '</div><div id="rg-body"></div></div>' +
-      '<div class="actions"><span class="hint" id="rg-hint">Tap ✓ when a photo has been checked. Category and importance change in place.</span><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div></div>',
+      '<div class="actions"><span class="hint" id="rg-hint">Tap ✓ when an action has been checked. Category and importance change in place.</span><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div></div>',
     function (el, close) {
       $('modal').classList.add('wide', 'reg');
       var q = function (s) { return el.querySelector(s); }, bodyEl = q('#rg-body');
       var paintCount = function () {
         var all = rows(), todo = all.filter(function (x) { return !x.w.chk; }).length;
-        q('#rg-count').textContent = (list.length === all.length ? all.length + ' photos' : list.length + ' of ' + all.length + ' photos') + ' · ' + todo + ' to check';
+        q('#rg-count').textContent = (list.length === all.length ? all.length + ' actions' : list.length + ' of ' + all.length + ' actions') + ' · ' + todo + ' to check';
       };
       var rowHtml = function (x, i) {
-        var w = x.w, imp = cam.impOf(w), ro = x.l.locked, ph = w.photos && w.photos[0];
+        var w = x.w, imp = cam.impOf(w), ro = x.l.locked, ph = w.photos && w.photos[0], kd = cam.kindOf(w);
         return '<div class="rg-row' + (w.chk ? ' done' : '') + '" role="row" data-i="' + i + '" style="--ic:' + imp.c + '">' +
           '<label class="rg-tick" title="Checked"><input type="checkbox" data-k="chk"' + (w.chk ? ' checked' : '') + (ro ? ' disabled' : '') + '><i></i></label>' +
-          '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : '') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
-          '<span class="rg-name"><b>' + esc(w.name || 'Photo') + '</b><small>' + esc(x.l.name) + '</small></span>' +
+          '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : '<span class="rg-glyph">' + cam.pinSvg(imp.c, cam.catOf(x.l, w)) + '</span>') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
+          '<span class="rg-name"><b>' + esc(w.name || 'Action') + '</b><small><span class="rg-kind">' + esc(kd.k) + '</span>' + esc((kd.size ? kd.size + ' · ' : '') + x.l.name) + '</small></span>' +
           '<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cam.cats(x.l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' +
           '<select data-k="imp" class="rg-imp"' + (ro ? ' disabled' : '') + '>' + IMP.map(function (m, k) { return '<option value="' + k + '"' + (k === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select>' +
           '<span class="rg-taken" title="When the photo was taken">' + esc(short(cam.taken(w))) + '</span>' +
@@ -104,8 +104,8 @@
       bodyEl.addEventListener('click', function (e) {
         var b = e.target.closest('[data-k=view],[data-k=show]'); if (!b) return;
         var x = list[+b.closest('.rg-row').getAttribute('data-i')];
-        if (b.getAttribute('data-k') === 'view') { if (x.w.photos && x.w.photos.length) GC.photos.view(x.w.photos, 0); return; }
-        close(); map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false }); GC.inspectWaypoint(x.l, x.w);
+        if (b.getAttribute('data-k') === 'view' && x.w.photos && x.w.photos.length) { GC.photos.view(x.w.photos, 0); return; }
+        close(); if (x.w.geom) map.fitBounds(GC.card.boundsOf(x.w.geom), { padding: [80, 80], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false }); GC.inspectWaypoint(x.l, x.w);
       });
       q('.rg-head').addEventListener('click', function (e) {
         var h = e.target.closest('[data-s]'); if (!h) return;
@@ -117,25 +117,40 @@
       q('#rg-cat').onchange = function () { st.cat = q('#rg-cat').value; paint(); };
       q('#rg-min').onchange = function () { st.min = +q('#rg-min').value; paint(); };
       q('#rg-chk').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; st.chk = b.getAttribute('data-c'); paint(); };
-      q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(list)], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' photo register.csv'); };
+      q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(list)], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' actions register.csv'); };
       q('[data-a=done]').onclick = close;
+      q('#rg-new').onclick = function () { close(); newMenu(); };
       paint();
     }, function () { $('modal').classList.remove('wide', 'reg'); });
   }
 
+  /** + New action: a choice of photo, pin, area or line. */
+  function newMenu() {
+    GC.modal('<h2>New action</h2><div class="pm-grid na-grid">' +
+      '<button data-n="photo"><svg><use xlink:href="#i-camera"/></svg><span>Photo</span></button><button data-n="pin"><svg><use xlink:href="#i-gpt"/></svg><span>Pin at my position</span></button>' +
+      '<button data-n="area"><svg><use xlink:href="#i-gpoly"/></svg><span>Draw an area</span></button><button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button></div>' +
+      '<p class="hint">Or press and hold the map to pin a spot. Any drawing or measurement: tap it › More › Create action.</p><div class="actions"><button class="btn" data-a="no">Cancel</button></div>',
+    function (el, close) {
+      el.querySelector('[data-a=no]').onclick = close;
+      [].forEach.call(el.querySelectorAll('[data-n]'), function (b) {
+        b.onclick = function () { var n = b.getAttribute('data-n'); close(); if (n === 'photo') GC.camera.capture(); else if (n === 'pin') GC.camera.newAction({}); else GC.camera.drawAction(n); };
+      });
+    });
+  }
   /** The register as CSV (opens in Excel: UTF-8 with BOM, CRLF lines). */
   function csv(list) {
     var cam = GC.camera, iso = function (t) { var d = new Date(t), p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
     var q = function (v) { v = v == null ? '' : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    var head = ['Name', 'Category', 'Importance', 'Checked', 'Checked by', 'Checked at', 'Taken', 'Latitude', 'Longitude', 'MGA2020', 'GPS accuracy (m)', 'Note', 'Photos', 'Layer'];
+    var head = ['Name', 'Type', 'Size', 'Category', 'Importance', 'Checked', 'Checked by', 'Checked at', 'Taken', 'Latitude', 'Longitude', 'MGA2020', 'GPS accuracy (m)', 'Note', 'Photos', 'Layer'];
     var lines = [head.join(',')].concat(list.map(function (x) {
       var w = x.w;
-      return [w.name, catName(x), cam.impOf(w).n, w.chk ? 'Yes' : 'No', w.chk ? w.chk.by : '', w.chk ? iso(w.chk.t) : '', iso(cam.taken(w)),
+      var kd = cam.kindOf(w);
+      return [w.name, kd.k, kd.size, catName(x), cam.impOf(w).n, w.chk ? 'Yes' : 'No', w.chk ? w.chk.by : '', w.chk ? iso(w.chk.t) : '', iso(cam.taken(w)),
         w.lat.toFixed(7), w.lon.toFixed(7), Geo.fmt([w.lon, w.lat], 'mga'), w.acc != null ? Math.round(w.acc) : '', w.note || '', (w.photos || []).length, x.l.name].map(q).join(',');
     }));
     return '﻿' + lines.join('\r\n') + '\r\n';
   }
 
   if ($('btn-photos')) $('btn-photos').onclick = open;
-  GC.register = { open: open, rows: rows, csv: function () { return csv(filtered()); } };
+  GC.register = { open: open, newMenu: newMenu, rows: rows, csv: function () { return csv(filtered()); } };
 })(window);

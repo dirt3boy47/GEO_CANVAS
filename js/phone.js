@@ -12,7 +12,7 @@
   var bar = document.createElement('nav'); bar.id = 'phone-bar'; bar.className = 'panel';
   bar.innerHTML =
     '<button data-t="map" class="on"><svg><use xlink:href="#i-gps"/></svg><span>Map</span></button>' +
-    '<button data-t="photos"><svg><use xlink:href="#i-photos"/></svg><span>Photos</span><i class="pb-n" hidden></i></button>' +
+    '<button data-t="photos"><svg><use xlink:href="#i-photos"/></svg><span>Actions</span><i class="pb-n" hidden></i></button>' +
     '<button data-t="camera" class="pb-cam" aria-label="Take a photo"><svg><use xlink:href="#i-camera"/></svg></button>' +
     '<button data-t="layers"><svg><use xlink:href="#i-layers"/></svg><span>Layers</span></button>' +
     '<button data-t="more"><svg><use xlink:href="#i-more"/></svg><span>More</span></button>';
@@ -20,8 +20,18 @@
   var locate = document.createElement('button'); locate.id = 'phone-locate'; locate.className = 'panel'; locate.setAttribute('aria-label', 'Show my position');
   locate.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   document.body.appendChild(locate);
+  var add = document.createElement('button'); add.id = 'phone-add'; add.className = 'panel'; add.setAttribute('aria-label', 'New action: pin, area or line');
+  add.innerHTML = '<svg><use xlink:href="#i-plus"/></svg>';
+  document.body.appendChild(add);
+  var addSheet = document.createElement('section'); addSheet.id = 'phone-addsheet'; addSheet.className = 'phone-sheet'; addSheet.hidden = true;
+  addSheet.innerHTML = '<div class="cs-grab"></div><h2>New action</h2><div class="pm-grid">' +
+    '<button data-n="pin"><svg><use xlink:href="#i-gpt"/></svg><span>Pin at my position</span></button>' +
+    '<button data-n="area"><svg><use xlink:href="#i-gpoly"/></svg><span>Draw an area</span></button>' +
+    '<button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button></div>' +
+    '<p class="pa-hint">Tip: press and hold the map to pin that exact spot. The big camera button takes a photo action.</p>';
+  document.body.appendChild(addSheet);
   var photos = document.createElement('section'); photos.id = 'phone-photos'; photos.className = 'phone-sheet'; photos.hidden = true;
-  photos.innerHTML = '<div class="cs-grab"></div><div class="pp-head"><h2>Photos <small id="pp-count"></small></h2><button class="btn" id="pp-reg">Register</button><div class="seg small" id="pp-sort"><button data-s="imp" class="on">Importance</button><button data-s="new">Newest</button><button data-s="near">Nearest</button></div></div>' +
+  photos.innerHTML = '<div class="cs-grab"></div><div class="pp-head"><h2>Actions <small id="pp-count"></small></h2><button class="btn" id="pp-reg">Register</button><div class="seg small" id="pp-sort"><button data-s="imp" class="on">Importance</button><button data-s="new">Newest</button><button data-s="near">Nearest</button></div></div>' +
     '<div class="pp-chips" id="pp-filter"></div><div class="pp-grid" id="pp-grid"></div>';
   document.body.appendChild(photos);
   var more = document.createElement('section'); more.id = 'phone-more'; more.className = 'phone-sheet'; more.hidden = true;
@@ -63,6 +73,7 @@
   function closeSheets(except) {
     if (except !== 'photos') photos.hidden = true;
     if (except !== 'more') more.hidden = true;
+    if (except !== 'add') addSheet.hidden = true;
     if (except !== 'layers') body.classList.add('no-sidebar');
     if (GC.ui) GC.ui.close();
     ['gps-panel'].forEach(function (id) { if ($(id) && except !== id) $(id).hidden = true; });
@@ -73,6 +84,7 @@
     if (t !== 'map' && GC.closeInspector) GC.closeInspector();
     if (t === 'photos') { photos.hidden = false; paint(); }
     else if (t === 'more') more.hidden = false;
+    else if (t === 'add') addSheet.hidden = false;
     else if (t === 'layers') body.classList.remove('no-sidebar');
     [].forEach.call(bar.querySelectorAll('[data-t]'), function (b) { b.classList.toggle('on', b.getAttribute('data-t') === t); });
   }
@@ -87,6 +99,14 @@
     if (!body.classList.contains('phone')) return;
     if (e.target.closest && e.target.closest('#map') && cur !== 'map') tab('map');
   }, true);
+
+  add.onclick = function () { tab('add'); };
+  addSheet.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-n]'); if (!b) return;
+    var n = b.getAttribute('data-n'); tab('map');
+    if (!GC.camera) return;
+    if (n === 'pin') GC.camera.newAction({}); else GC.camera.drawAction(n);
+  });
 
   // ---------- More ----------
   more.addEventListener('click', function (e) {
@@ -124,7 +144,7 @@
     if (!GC.project) return out;
     GC.project.layers.forEach(function (l) {
       if (l.kind !== 'waypoints') return;
-      (l.waypoints || []).forEach(function (w) { if ((w.photos && w.photos.length) || (GC.camera && GC.camera.isPhotoPt(l, w))) out.push({ l: l, w: w }); });
+      (l.waypoints || []).forEach(function (w) { out.push({ l: l, w: w }); }); // photos, pins, drawn areas and lines
     });
     return out;
   }
@@ -160,19 +180,20 @@
     });
     $('pp-count').textContent = shown.length === items.length ? String(items.length) : shown.length + ' of ' + items.length;
     var grid = $('pp-grid');
-    if (!items.length) { grid.innerHTML = '<div class="pp-empty"><svg><use xlink:href="#i-camera"/></svg><b>No photos yet</b><span>Tap the camera button: the photo is pinned where you stand.</span></div>'; return; }
-    if (!shown.length) { grid.innerHTML = '<div class="pp-empty"><b>Nothing matches</b><span>Tap “All” to see every photo.</span></div>'; return; }
+    if (!items.length) { grid.innerHTML = '<div class="pp-empty"><svg><use xlink:href="#i-camera"/></svg><b>No actions yet</b><span>Tap the camera button to photograph something, or ＋ to pin a spot or draw an area. Press and hold the map to pin right there.</span></div>'; return; }
+    if (!shown.length) { grid.innerHTML = '<div class="pp-empty"><b>Nothing matches</b><span>Tap “All” to see every action.</span></div>'; return; }
     grid.innerHTML = shown.map(function (x, i) {
       var imp = cam ? cam.impOf(x.w) : { n: '', c: '#6b7280' }, c = cam && cam.catOf(x.l, x.w), photo = x.w.photos && x.w.photos[0];
-      return '<button class="pp-tile" data-i="' + i + '" style="--ic:' + imp.c + '"><div class="pp-img">' + (photo ? '<img data-ph="' + esc(photo.id) + '" alt="">' : '') +
+      var kd = cam ? cam.kindOf(x.w) : { k: 'Pin', size: '' };
+      return '<button class="pp-tile" data-i="' + i + '" style="--ic:' + imp.c + '"><div class="pp-img">' + (photo ? '<img data-ph="' + esc(photo.id) + '" alt="">' : '<span class="pp-glyph">' + (cam ? cam.pinSvg(imp.c, c) : '') + '</span>') +
         (cam && cam.isPhotoPt(x.l, x.w) ? '<span class="pp-imp">' + esc(imp.n) + '</span>' : '') + (x.w.photos && x.w.photos.length > 1 ? '<span class="pp-more">' + x.w.photos.length + '</span>' : '') + (x.w.chk ? '<span class="pp-chk" title="' + esc(cam.checkedText(x.w)) + '">✓</span>' : '') + '</div>' +
-        '<b>' + esc(x.w.name || 'Photo') + '</b><small>' + esc((c ? c.name + ' · ' : '') + ago(x.w.time) + (x.d != null ? ' · ' + (x.d < 3 ? 'here' : GC.fmtDist(x.d)) : '')) + '</small></button>';
+        '<b>' + esc(x.w.name || 'Action') + '</b><small>' + esc((kd.k !== 'Photo' ? kd.k + (kd.size ? ' ' + kd.size : '') + ' · ' : '') + (c ? c.name + ' · ' : '') + ago(x.w.time) + (x.d != null ? ' · ' + (x.d < 3 ? 'here' : GC.fmtDist(x.d)) : '')) + '</small></button>';
     }).join('');
     [].forEach.call(grid.querySelectorAll('img[data-ph]'), function (im) { GC.photos.url(im.getAttribute('data-ph')).then(function (u) { if (u) im.src = u; }); });
     [].forEach.call(grid.querySelectorAll('.pp-tile'), function (t) {
       t.onclick = function () {
         var x = shown[+t.getAttribute('data-i')]; tab('map');
-        map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false });
+        if (x.w.geom) map.fitBounds(GC.card.boundsOf(x.w.geom), { padding: [60, 60], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false });
         GC.inspectWaypoint(x.l, x.w);
       };
     });
@@ -203,7 +224,7 @@
   GC.refreshLayers = function () { var r = origRefresh.apply(this, arguments); paintCount(); return r; };
 
   // swipe a sheet down to close it
-  [photos, more].forEach(function (s) {
+  [photos, more, addSheet].forEach(function (s) {
     var y0 = null;
     s.addEventListener('touchstart', function (e) { y0 = s.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
     s.addEventListener('touchend', function (e) { if (y0 != null && e.changedTouches[0].clientY - y0 > 70) tab('map'); y0 = null; }, { passive: true });

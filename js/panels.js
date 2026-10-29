@@ -383,6 +383,10 @@
       photos = { refs: el.photos || [], onChange: l.locked ? null : function (refs) { replace(function (c) { if (refs.length) c.photos = refs; else delete c.photos; }); } };
       note = l.locked ? null : { text: el.note || '', save: function (t) { replace(function (c) { if (t) c.note = t; else delete c.note; }); } };
     }
+    if (GC.camera) more.unshift({ label: 'Create action', fn: function () {
+      var g = target && target.type !== 'Point' ? JSON.parse(JSON.stringify(target)) : null, pt = at || (target && target.type === 'Point' ? target.coordinates : null);
+      GC.closeInspector(); GC.camera.newAction(g ? { geom: g } : { at: pt || [anchor.lng, anchor.lat] });
+    } });
     if (!l.locked) more.push({ label: 'Delete', danger: true, fn: function () { GC.closeInspector(); GC.editLayer(l.id, function (items) { return items.filter(function (x) { return x.id !== el.id; }); }); GC.toast('Deleted. Undo is available.'); } });
     var first = function (g) { var c = g.coordinates; while (typeof c[0] !== 'number') c = c[0]; return L.latLng(c[1], c[0]); };
     var anchor = at ? L.latLng(at[1], at[0]) : (tapLL || first(target));
@@ -396,21 +400,23 @@
       body: rowsHtml([['Distance', GC.fmtDist(t.distance || 0)], ['Points', String(t.points.length)], ['Started', GC.fmtTime(t.points[0] ? t.points[0][2] : Date.now())], ['Duration', Math.floor(dur / 3600) + ' h ' + Math.round(dur / 60) % 60 + ' min']]) });
   };
   GC.inspectWaypoint = function (l, w) {
-    var isCam = GC.camera && GC.camera.isPhotoPt(l, w), rows = [isCam ? ['Taken', GC.fmtTime(GC.camera.taken(w))] : ['Time', GC.fmtTime(w.time)]];
+    var isCam = GC.camera && GC.camera.isPhotoPt(l, w), rows = [isCam ? [w.photos && w.photos.length ? 'Taken' : 'Created', GC.fmtTime(GC.camera.taken(w))] : ['Time', GC.fmtTime(w.time)]];
+    if (w.geom && GC.camera) { var gi = GC.camera.geomInfo(w.geom); rows.push([gi.kind === 'Area' ? 'Area' : 'Length', gi.short]); }
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
     var ll = L.latLng(w.lat, w.lon), cam = GC.camera && GC.camera.isPhotoPt(l, w), body = rowsHtml(rows);
     if (cam) { var bd = document.createElement('div'); bd.appendChild(GC.camera.cardBody(l, w, function () { var s = c && c.root.querySelector('.gc-sub'); if (s) s.textContent = l.name + ' · ' + GC.camera.label(l, w); })); bd.insertAdjacentHTML('beforeend', body); body = bd; }
-    var c = GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · ' + (cam ? GC.camera.label(l, w) : 'waypoint'), body: body, at: [w.lon, w.lat], zoom: L.latLngBounds(ll, ll),
+    var c = GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · ' + (cam ? GC.camera.label(l, w) : 'waypoint'), body: body, at: [w.lon, w.lat], zoom: w.geom ? GC.card.boundsOf(w.geom) : L.latLngBounds(ll, ll),
+      target: w.geom || null, highlight: w.geom || null,
       photos: { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } },
       note: l.locked ? null : { text: w.note || '', save: function (t) { w.note = t; GC.renderLayer(l); GC.markDirty(l.id); } },
-      more: l.locked ? [] : [
+      more: l.locked ? [] : (w.geom ? [] : [
         { label: 'Move pin', fn: function () {
           GC.closeInspector(); GC.toast('Tap the map where “' + (w.name || 'the waypoint') + '” should be.', null, 8000);
           GC.placeOnce = function (p) { w.lat = Math.round(p.lat * 1e7) / 1e7; w.lon = Math.round(p.lng * 1e7) / 1e7; w.acc = null; w.moved = true; GC.renderLayer(l); GC.markDirty(l.id); GC.toast('Moved.'); GC.inspectWaypoint(l, w); };
-        } },
-        { label: 'Rename', fn: function () { GC.prompt('Rename waypoint', w.name || '', 'Name', 'Rename').then(function (n) { if (!n) return; w.name = n; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.inspectWaypoint(l, w); }); } },
-        { label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }] });
+        } }]).concat(l.locked ? [] : [
+        { label: 'Rename', fn: function () { GC.prompt('Rename', w.name || '', 'Name', 'Rename').then(function (n) { if (!n) return; w.name = n; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.inspectWaypoint(l, w); }); } },
+        { label: 'Delete', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }]) });
   };
 
   // ======================= GPS =======================

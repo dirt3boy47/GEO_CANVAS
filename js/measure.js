@@ -76,8 +76,10 @@
     $('ms-hint').textContent = M.free
       ? (GC.settings.fingerDraw ? 'Trace with a finger or the Pencil; two fingers move the map. Taps add straight segments.' : 'Trace with the Apple Pencil; fingers still move the map. Taps add straight segments.')
       : (M.mode === 'area' ? 'Tap the corners of the area. Drag a point to move it.' : 'Tap along the line to add points. Drag a point to move it.');
+    if (M.action) $('ms-hint').textContent += ' Then Create action.';
     $('ms-undo').disabled = !M.pts.length; $('ms-clear').disabled = !M.pts.length;
-    $('ms-save').disabled = M.mode === 'area' ? M.pts.length < 3 : M.pts.length < 2;
+    $('ms-save').disabled = $('ms-action').disabled = M.mode === 'area' ? M.pts.length < 3 : M.pts.length < 2;
+    $('ms-save').hidden = !!M.action; $('ms-title').textContent = M.action ? (M.mode === 'area' ? 'Draw the action area' : 'Draw the action line') : 'Measure';
     Array.prototype.forEach.call($('ms-mode').children, function (b) { b.classList.toggle('on', b.getAttribute('data-m') === M.mode); });
     $('ms-free').checked = M.free;
   }
@@ -154,7 +156,7 @@
     setFree(M.free); render();
   }
   function close() {
-    M.on = false; M.trace = null; M.pts = [];
+    M.on = false; M.trace = null; M.pts = []; M.action = false;
     group.clearLayers(); map.removeLayer(group); map.dragging.enable();
     document.body.classList.remove('measuring');
     $('measure-panel').hidden = true; $('btn-measure').classList.remove('on');
@@ -184,5 +186,19 @@
     M.pts = []; render();
   };
 
-  GC.measure = { click: click, open: open, close: close, isOn: function () { return M.on; }, fmtLen: fmtLen, fmtArea: fmtArea };
+  /** Draw an area or line that becomes an action (the action sheet opens on Create action). */
+  function drawAction(mode) {
+    if (M.on) close();
+    M.mode = mode === 'line' ? 'line' : 'area'; M.action = true; open();
+    GC.toast(M.mode === 'area' ? 'Tap the corners of the area (or trace it with the Pencil), then Create action.' : 'Tap along the line (or trace it with the Pencil), then Create action.', null, 6000);
+  }
+  $('ms-action').onclick = function () {
+    var c = coords(), area = M.mode === 'area';
+    if (c.length < (area ? 3 : 2)) return;
+    var r = function (q) { return [Math.round(q[0] * 1e7) / 1e7, Math.round(q[1] * 1e7) / 1e7]; };
+    var geom = area ? { type: 'Polygon', coordinates: [c.map(r).concat([r(c[0])])] } : { type: 'LineString', coordinates: c.map(r) };
+    close();
+    if (GC.camera) GC.camera.newAction({ geom: geom });
+  };
+  GC.measure = { drawAction: drawAction, click: click, open: open, close: close, isOn: function () { return M.on; }, fmtLen: fmtLen, fmtArea: fmtArea };
 })(window);

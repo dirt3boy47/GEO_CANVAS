@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.9' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.10' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -38,7 +38,7 @@
     var closed = false;
     var close = function () { if (closed) return; closed = true; wrap.hidden = true; el.innerHTML = ''; modalClose = null; if (onClose) onClose(); };
     modalClose = close;
-    wrap.onclick = function (e) { if (e.target === wrap) close(); };
+    wrap.onclick = function (e) { if (e.target === wrap && Date.now() > (GC.suppressClickUntil || 0)) close(); }; // not the lift that ends a press-and-hold
     if (build) build(el, close);
     var first = el.querySelector('input[type=text]:not([readonly]), textarea');
     if (first && !('ontouchstart' in window)) first.focus();
@@ -475,6 +475,12 @@
       var cam = GC.camera;
       (l.waypoints || []).forEach(function (w) {
         var pin = cam && cam.isPhotoPt(l, w); if (pin && !cam.shown(l, w)) return;
+        if (w.geom && cam) { // a drawn action: its area or line in the importance colour, under its pin
+          var col = cam.impOf(w).c, flip = function (q) { return [q[1], q[0]]; };
+          var shp = w.geom.type === 'Polygon' ? L.polygon(w.geom.coordinates[0].map(flip), { pane: v.pn, renderer: v.renderer, color: col, weight: 3, fillColor: col, fillOpacity: w.chk ? 0.08 : 0.2, dashArray: w.chk ? '6 5' : null, interactive: false })
+            : L.polyline(w.geom.coordinates.map(flip), { pane: v.pn, renderer: v.renderer, color: col, weight: 4, dashArray: w.chk ? '6 5' : null, interactive: false });
+          shp._gcWp = w; v.group.addLayer(shp);
+        }
         // photo points: a pin coloured by importance with the category's symbol; other waypoints: a dot
         var m = pin ? L.marker([w.lat, w.lon], { pane: v.pn, icon: cam.icon(l, w), interactive: false, keyboard: false })
           : L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
@@ -492,7 +498,7 @@
     else if (l.kind === 'raster' || l.kind === 'cad' || l.kind === 'geopdf' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
     else if (l.kind === 'libmap') { var s0 = GC.mymaps && GC.mymaps.get(l.ref); if (s0 && s0.bounds) { add(s0.bounds[0][0], s0.bounds[0][1]); add(s0.bounds[1][0], s0.bounds[1][1]); } }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
-    else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); });
+    else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); if (w.geom) (w.geom.type === 'Polygon' ? w.geom.coordinates[0] : w.geom.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
     return b;
   };
   GC.zoomToLayer = function (l) {

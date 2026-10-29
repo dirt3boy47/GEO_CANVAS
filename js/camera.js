@@ -5,7 +5,7 @@
    Pins are coloured by importance and carry the category's symbol; the layer's options filter them. */
 (function (global) {
   'use strict';
-  var GC = global.GC, map = GC.map, $ = GC.$, esc = GC.esc;
+  var GC = global.GC, Geo = global.Geo, map = GC.map, $ = GC.$, esc = GC.esc;
 
   var IMP = [{ n: 'Info', c: '#6b7280' }, { n: 'Low', c: '#2e9d5b' }, { n: 'Medium', c: '#d99a00' }, { n: 'High', c: '#f26b00' }, { n: 'Critical', c: '#d62f2f' }];
   var CATS = [{ id: 'gen', name: 'General', icon: 'camera' }, { id: 'prog', name: 'Progress', icon: 'flag' }, { id: 'def', name: 'Defect', icon: 'wrench' },
@@ -31,7 +31,7 @@
     return l;
   }
   function cats(l) { return (l && l.cats) || CATS; }
-  function catOf(l, w) { return cats(l).filter(function (c) { return c.id === w.cat; })[0] || null; }
+  function catOf(l, w) { var k = w.cat || 'gen'; return cats(l).filter(function (c) { return c.id === k; })[0] || null; } // no category yet = General
   function isPhotoPt(l, w) { return !!(l && l.photoPts) || w.cat != null || w.imp != null; }
   function impOf(w) { return IMP[Math.max(0, Math.min(4, w.imp | 0))]; }
   function symbol(c, x, y, s) {
@@ -74,7 +74,7 @@
       var fs = Array.prototype.slice.call(inp.files || []); if (inp.parentNode) inp.parentNode.removeChild(inp);
       if (!fs.length) return;
       GC.busy('Adding photo…');
-      GC.photos.ingest([fs[0]]).then(function (refs) { GC.busy(null); sheet(refs[0]); }, function (e) { GC.busy(null); GC.toast(e.message, 'err'); });
+      GC.photos.ingest([fs[0]]).then(function (refs) { GC.busy(null); sheet(refs[0], { again: true }); }, function (e) { GC.busy(null); GC.toast(e.message, 'err'); });
     };
     document.body.appendChild(inp); inp.click();
   }
@@ -93,44 +93,79 @@
   function impHtml(sel) {
     return IMP.map(function (m, i) { return '<button class="cam-imp' + (i === sel ? ' on' : '') + '" data-i="' + i + '" style="--ic:' + m.c + '"><i></i>' + m.n + '</button>'; }).join('');
   }
-  /** The quick sheet after a photo: name, category, importance, note. Closing it any other way than Discard saves. */
-  function sheet(ref) {
+  /** Size and middle of a drawn action: { text, ll:[lon,lat] }. */
+  function geomInfo(g) {
+    if (g.type === 'Polygon') {
+      var r = g.coordinates[0], a = Math.abs(Geo.ringArea(r)), b = L.polygon(r.map(function (q) { return [q[1], q[0]]; })).getBounds().getCenter();
+      return { text: 'Area ' + GC.fmtArea(a) + ' · perimeter ' + GC.fmtDist(Geo.pathLength(r)), short: GC.fmtArea(a), ll: [b.lng, b.lat], kind: 'Area' };
+    }
+    var c = g.coordinates, m = c[Math.floor((c.length - 1) / 2)];
+    if (c.length % 2 === 0 && c.length > 1) { var n = c[c.length / 2]; m = [(m[0] + n[0]) / 2, (m[1] + n[1]) / 2]; }
+    return { text: 'Line ' + GC.fmtDist(Geo.pathLength(c)), short: GC.fmtDist(Geo.pathLength(c)), ll: m, kind: 'Line' };
+  }
+  /** What kind of action a waypoint is: Photo, Pin, Area or Line (+ size). */
+  function kindOf(w) {
+    if (w.geom) { var gi = geomInfo(w.geom); return { k: gi.kind, size: gi.short }; }
+    return { k: w.photos && w.photos.length ? 'Photo' : 'Pin', size: '' };
+  }
+  /**
+   * The quick sheet for a new action: photo (if any), name, category, importance, note. Closing it any other way than
+   * Discard saves. opt: { geom (drawn Polygon/LineString), at ([lon, lat] a chosen place), again (offer "Save + next photo") }.
+   * Without geom or at, the action goes at your GPS position (else the photo's own location, else the map centre).
+   */
+  function sheet(ref, opt) {
+    opt = opt || {};
     var l0 = layer(false), cs = cats(l0).map(function (c) { return Object.assign({}, c); }), last = null;
     try { last = localStorage.getItem(LAST); } catch (e) { /* private mode */ }
-    var st = { cat: cs.some(function (c) { return c.id === last; }) ? last : cs[0].id, imp: 0, done: false };
+    var st = { cat: cs.some(function (c) { return c.id === last; }) ? last : cs[0].id, imp: 0, done: false, photos: ref ? [ref] : [] };
+    var gi = opt.geom ? geomInfo(opt.geom) : null, what = opt.geom ? gi.kind.toLowerCase() : ref ? 'photo' : 'pin';
     var timer = null;
+    var where = function () {
+      if (gi) return { lat: gi.ll[1], lon: gi.ll[0], acc: null, ele: null, src: 'drawn' };
+      if (opt.at) return { lat: opt.at[1], lon: opt.at[0], acc: null, ele: null, src: 'chosen' };
+      return position(st.photos[0]);
+    };
     var save = function (el) {
       if (st.done) return null; st.done = true; clearInterval(timer);
-      var l = layer(true), p = position(ref), c = cs.filter(function (x) { return x.id === st.cat; })[0];
+      var l = layer(true), p = where(), c = cs.filter(function (x) { return x.id === st.cat; })[0];
       l.cats = cs;
       var n = l.waypoints.filter(function (w) { return w.cat === st.cat; }).length + 1;
-      var name = el && el.querySelector('#cam-name').value.trim() || (c ? c.name : 'Photo') + ' ' + pad(n);
-      var w = { lat: p.lat, lon: p.lon, ele: p.ele, acc: p.acc, time: Date.now(), taken: ref.t || Date.now(), name: name, note: el ? el.querySelector('#cam-note').value.trim() : '', photos: [ref], cat: st.cat, imp: st.imp };
+      var name = el && el.querySelector('#cam-name').value.trim() || (c ? c.name : 'Action') + ' ' + pad(n);
+      var w = { lat: p.lat, lon: p.lon, ele: p.ele, acc: p.acc, time: Date.now(), taken: st.photos[0] ? st.photos[0].t || Date.now() : Date.now(), name: name, note: el ? el.querySelector('#cam-note').value.trim() : '', cat: st.cat, imp: st.imp };
+      if (st.photos.length) w.photos = st.photos;
+      if (opt.geom) w.geom = opt.geom;
       l.waypoints.push(w);
       try { localStorage.setItem(LAST, st.cat); } catch (e) { /* private mode */ }
       if (!l.visible) l.visible = true;
       GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id, true); GC.refreshLayers();
-      if (!shown(l, w)) GC.toast('Saved, but the layer’s filter hides ' + label(l, w) + ' photos.', 'warn');
+      if (!shown(l, w)) GC.toast('Saved, but the layer’s filter hides ' + label(l, w) + ' actions.', 'warn');
       else if (p.src === 'gps') GC.toast('“' + name + '” pinned at your GPS position (±' + Math.round(p.acc) + ' m).');
       else if (p.src === 'photo') GC.toast('“' + name + '” pinned where the photo was taken.');
+      else if (p.src === 'drawn' || p.src === 'chosen') GC.toast('“' + name + '” saved.');
       else GC.toast('No GPS fix yet, so “' + name + '” is at the map centre. Tap it › More › Move pin to put it in the right spot.', 'warn', 8000);
       return { l: l, w: w };
     };
-    GC.modal('<div class="cam-sheet"><div class="cam-top"><div class="cam-thumb"><img alt=""></div><div class="cam-meta">' +
+    GC.modal('<div class="cam-sheet"><div class="cam-top"><div class="cam-thumb"><img alt=""><button class="cam-addph" type="button"><svg><use xlink:href="#i-camera"/></svg><span>Add photo</span></button></div><div class="cam-meta">' +
       '<input type="text" id="cam-name" placeholder="Name (automatic)" autocomplete="off"><div class="cam-loc" id="cam-loc"></div></div></div>' +
       '<div class="cam-lbl">Category</div><div class="cam-chips" id="cam-cats">' + chipsHtml(cs, st.cat) + '</div>' +
       '<div class="cam-lbl">Importance</div><div class="cam-imps" id="cam-imps">' + impHtml(st.imp) + '</div>' +
       '<textarea id="cam-note" rows="2" placeholder="Note (optional)"></textarea>' +
-      '<div class="actions"><button class="btn" data-a="discard">Discard</button><span class="spacer"></span><button class="btn" data-a="again">Save + next photo</button><button class="btn primary" data-a="save">Save</button></div></div>',
+      '<div class="actions"><button class="btn" data-a="discard">Discard</button><span class="spacer"></span>' + (opt.again ? '<button class="btn" data-a="again">Save + next photo</button>' : '') + '<button class="btn primary" data-a="save">Save</button></div></div>',
     function (el, close) {
-      GC.photos.url(ref.id).then(function (u) { if (u) el.querySelector('.cam-thumb img').src = u; });
+      var thumb = el.querySelector('.cam-thumb'), img = thumb.querySelector('img');
+      var paintPh = function () {
+        thumb.classList.toggle('empty', !st.photos.length);
+        if (st.photos.length) GC.photos.url(st.photos[0].id).then(function (u) { if (u) img.src = u; });
+      };
+      paintPh();
+      thumb.querySelector('.cam-addph').onclick = function () { GC.photos.pick().then(function (more) { if (more.length) { st.photos = st.photos.concat(more); paintPh(); } }); };
       var loc = el.querySelector('#cam-loc');
       var paintLoc = function () {
-        var p = position(ref);
-        loc.className = 'cam-loc ' + (p.src === 'gps' ? (p.acc <= 10 ? 'good' : p.acc <= 30 ? 'fair' : 'poor') : p.src === 'photo' ? 'fair' : 'poor');
-        loc.textContent = p.src === 'gps' ? 'Pin at your GPS position · ±' + Math.round(p.acc) + ' m' : p.src === 'photo' ? 'Pin where the photo was taken (its own location)' : 'Waiting for GPS… (if none comes, the pin goes at the map centre)';
+        var p = where();
+        loc.className = 'cam-loc ' + (p.src === 'gps' ? (p.acc <= 10 ? 'good' : p.acc <= 30 ? 'fair' : 'poor') : p.src === 'photo' ? 'fair' : p.src === 'centre' ? 'poor' : 'good');
+        loc.textContent = p.src === 'drawn' ? gi.text : p.src === 'chosen' ? 'Pin where you pressed' : p.src === 'gps' ? 'Pin at your GPS position · ±' + Math.round(p.acc) + ' m' : p.src === 'photo' ? 'Pin where the photo was taken (its own location)' : 'Waiting for GPS… (if none comes, the pin goes at the map centre)';
       };
-      paintLoc(); timer = setInterval(paintLoc, 800);
+      paintLoc(); if (!gi && !opt.at) timer = setInterval(paintLoc, 800);
       var catBox = el.querySelector('#cam-cats');
       var bindCats = function () {
         [].forEach.call(catBox.querySelectorAll('[data-c]'), function (b) { b.onclick = function () { st.cat = b.getAttribute('data-c'); catBox.innerHTML = chipsHtml(cs, st.cat); bindCats(); }; });
@@ -148,11 +183,15 @@
       bindCats();
       var impBox = el.querySelector('#cam-imps');
       [].forEach.call(impBox.querySelectorAll('[data-i]'), function (b) { b.onclick = function () { st.imp = +b.getAttribute('data-i'); [].forEach.call(impBox.children, function (x) { x.classList.toggle('on', x === b); }); }; });
-      el.querySelector('[data-a=discard]').onclick = function () { st.done = true; clearInterval(timer); close(); GC.toast('Photo discarded.'); };
+      el.querySelector('[data-a=discard]').onclick = function () { st.done = true; clearInterval(timer); close(); GC.toast((what === 'photo' ? 'Photo' : 'Action') + ' discarded.'); };
       el.querySelector('[data-a=save]').onclick = function () { save(el); close(); };
-      el.querySelector('[data-a=again]').onclick = function () { save(el); close(); capture(); };
-    }, function () { clearInterval(timer); if (!st.done) save(null); }); // tapped outside: keep the photo
+      if (opt.again) el.querySelector('[data-a=again]').onclick = function () { save(el); close(); capture(); };
+    }, function () { clearInterval(timer); if (!st.done) save(null); }); // tapped outside: keep it
   }
+  /** Starts a new action without a camera shot: { at } a pin there, { geom } a drawn area or line, {} a pin at your GPS position. */
+  function newAction(opt) { if (!GC.project) return; if (!opt || (!opt.at && !opt.geom)) { if (GC.gps) GC.gps.start(); } sheet(null, opt || {}); }
+  /** Draw an action area or line on the map (the measuring tool with a Create action button). */
+  function drawAction(mode) { if (GC.measure) GC.measure.drawAction(mode || 'area'); }
 
   // ---------- on the tap card ----------
   /** Category and importance pickers for a photo point's card. */
@@ -218,7 +257,35 @@
   }
 
   $('btn-camera').onclick = function () { if (GC.ui) GC.ui.close(); capture(); };
+  $('am-pin').onclick = function () { if (GC.ui) GC.ui.close(); newAction({}); };
+  $('am-area').onclick = function () { if (GC.ui) GC.ui.close(); drawAction('area'); };
+  $('am-line').onclick = function () { if (GC.ui) GC.ui.close(); drawAction('line'); };
+
+  // Press and hold the map (finger or Pencil, or right-click) to drop an action pin right there.
+  var hold = null;
+  function holdOk(e) {
+    if (GC.mode === 'draw' || (GC.measure && GC.measure.isOn()) || GC.placeOnce || !GC.project) return false;
+    var t = e.target; return map.getContainer().contains(t) && !(t.closest && t.closest('.leaflet-control, .leaflet-popup, .leaflet-marker-draggable'));
+  }
+  function dropAt(x, y) {
+    var r = map.getContainer().getBoundingClientRect(), ll = map.containerPointToLatLng([x - r.left, y - r.top]);
+    GC.suppressClickUntil = Date.now() + 700; // the lift that ends the hold is not a tap
+    if (navigator.vibrate) navigator.vibrate(30);
+    if (GC.closeInspector) GC.closeInspector();
+    newAction({ at: [Math.round(ll.lng * 1e7) / 1e7, Math.round(ll.lat * 1e7) / 1e7] });
+  }
+  window.addEventListener('pointerdown', function (e) {
+    if (hold) { clearTimeout(hold.t); hold = null; return; } // a second finger: a pinch, not a hold
+    if (e.pointerType === 'mouse' || !holdOk(e)) return;
+    var x = e.clientX, y = e.clientY;
+    hold = { id: e.pointerId, x: x, y: y, t: setTimeout(function () { hold = null; dropAt(x, y); }, 650) };
+  }, true);
+  window.addEventListener('pointermove', function (e) { if (hold && e.pointerId === hold.id && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) { clearTimeout(hold.t); hold = null; } }, true);
+  ['pointerup', 'pointercancel'].forEach(function (t) { window.addEventListener(t, function (e) { if (hold && e.pointerId === hold.id) { clearTimeout(hold.t); hold = null; } }, true); });
+  map.on('movestart zoomstart', function () { if (hold) { clearTimeout(hold.t); hold = null; } });
+  map.getContainer().addEventListener('contextmenu', function (e) { e.preventDefault(); if (e.pointerType === 'touch' || !holdOk(e) || Date.now() < (GC.suppressClickUntil || 0)) return; dropAt(e.clientX, e.clientY); });
 
   GC.camera = { capture: capture, layer: layer, icon: icon, shown: shown, isPhotoPt: isPhotoPt, label: label, cardBody: cardBody, catOf: catOf, impOf: impOf,
-    optionsHtml: optionsHtml, bindOptions: bindOptions, IMP: IMP, CATS: CATS, cats: cats, taken: taken, setChecked: setChecked, checkedText: checkedText, pinSvg: pinSvg };
+    optionsHtml: optionsHtml, bindOptions: bindOptions, IMP: IMP, CATS: CATS, cats: cats, taken: taken, setChecked: setChecked, checkedText: checkedText, pinSvg: pinSvg,
+    newAction: newAction, drawAction: drawAction, geomInfo: geomInfo, kindOf: kindOf, symbol: symbol };
 })(window);
