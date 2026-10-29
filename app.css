@@ -70,6 +70,8 @@ body.draw #crosshair { display: none; }
 @media (max-width: 1120px) { .tb span { display: none; } .tb { min-width: 42px; height: 42px; padding: 0; } .tb svg { width: 22px; height: 22px; } }
 @media (max-width: 860px) { .seg span { display: none; } .title-block { max-width: 150px; padding: 0 4px; } }
 @media (max-width: 640px) { .title-block { display: none; } }
+/* phones: the top bar's buttons don't all fit, so it scrolls sideways (Camera stays near the start) */
+@media (max-width: 700px) { #topbar { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; } #topbar::-webkit-scrollbar { display: none; } #topbar .spacer { flex: 0 0 4px; } }
 
 #sidebar { position: fixed; z-index: 990; top: calc(76px + var(--safe-t)); left: calc(10px + var(--safe-l)); width: 330px; max-height: calc(100% - 180px - var(--safe-t) - var(--safe-b));
   display: flex; flex-direction: column; overflow: hidden; }
@@ -332,6 +334,43 @@ body.no-sidebar #sidebar { display: none; }
 .gc-more .btn { background: #f1f3f4; color: #202124; border: 1px solid #dadce0; padding: 7px 12px; font-size: 13px; }
 .gc-more .btn.danger { background: #fce8e6; color: #c5221f; border-color: #f6aea9; }
 .gc-hint { color: #5f6368; font-size: 12px; margin: 6px 0 0; }
+/* Camera: quick photo points */
+.gc-ppin { background: none; border: 0; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.gc-ppin svg { width: 30px; height: 40px; display: block; }
+.cam-sheet .cam-top { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }
+.cam-thumb { width: 92px; height: 92px; border-radius: 12px; overflow: hidden; background: var(--chip); flex: none; }
+.cam-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam-meta { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.cam-meta input { width: 100%; font-size: 16px; font-weight: 600; }
+.cam-loc { font-size: 12.5px; font-weight: 600; padding-left: 16px; position: relative; color: var(--muted); }
+.cam-loc::before { content: ''; position: absolute; left: 2px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.cam-loc.good { color: var(--accent); } .cam-loc.fair { color: #b07d00; } .cam-loc.poor { color: var(--signal); }
+.cam-lbl { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 6px; }
+.cam-lbl small { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.cam-chips, .cam-imps { display: flex; flex-wrap: wrap; gap: 6px; }
+.cam-chip, .cam-imp { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); background: var(--panel-solid); color: var(--ink); border-radius: 999px; padding: 8px 12px; font: 600 14px var(--font); cursor: pointer; min-height: 40px; }
+.cam-chip svg { width: 17px; height: 17px; }
+.cam-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.cam-chip.add { border-style: dashed; color: var(--muted); }
+.cam-new { display: inline-flex; gap: 6px; }
+.cam-new input { width: 160px; }
+.cam-imp i { width: 12px; height: 12px; border-radius: 50%; background: var(--ic); }
+.cam-imp.on { background: var(--ic); border-color: var(--ic); color: #fff; }
+.cam-imp.on i { background: #fff; }
+.cam-sheet textarea { width: 100%; margin-top: 12px; font-size: 15px; }
+.cam-card { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.cam-card label { display: grid; gap: 3px; font-size: 11px; font-weight: 700; color: #5f6368; text-transform: uppercase; letter-spacing: .03em; }
+.cam-card select { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 7px 8px; border-radius: 8px; border: 1px solid #dadce0; background: #f8f9fa; color: #202124; }
+.cam-card select[data-k=imp] { border-left: 6px solid var(--ic); }
+.cam-opts { margin: 4px 6px 8px; }
+.cam-opts select { width: 100%; }
+.cam-crow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.cam-crow input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; }
+.cam-crow small { color: var(--muted); min-width: 22px; text-align: right; }
+.cam-crow .ib, .cam-crow .cam-nodel { width: 36px; flex: none; }
+.cam-sym svg { width: 20px; height: 27px; display: block; }
+#cam-addcat { margin-top: 6px; }
+@media (max-width: 560px) { .cam-sheet .actions { flex-wrap: wrap; } .cam-thumb { width: 72px; height: 72px; } }
 /* Go: guidance bar */
 #nav-bar { position: fixed; z-index: 1050; left: 50%; transform: translateX(-50%); bottom: calc(18px + var(--safe-b)); display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 12px; width: max-content; max-width: calc(100% - 20px); }
 #nav-bar[hidden] { display: none; }

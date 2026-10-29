@@ -197,7 +197,7 @@
       var hit = null, hitPt = null; // a placemark icon wins over the lines and areas under it
       var walk = function (x) {
         if (x.eachLayer) { x.eachLayer(walk); return; }
-        if (x instanceof L.Marker && x.feature) { // placemark icons: hit their drawn box
+        if (x instanceof L.Marker && (x.feature || x._gcWp)) { // placemark icons and photo pins: hit their drawn box
           var io = (x.options.icon && x.options.icon.options) || {}, sz = io.iconSize || [20, 20], an = io.iconAnchor || [sz[0] / 2, sz[1] / 2], mp = map.latLngToLayerPoint(x.getLatLng());
           if (Math.abs(lp.x - (mp.x - an[0] + sz[0] / 2)) <= sz[0] / 2 + 7 && Math.abs(lp.y - (mp.y - an[1] + sz[1] / 2)) <= sz[1] / 2 + 7) hitPt = x;
           return;
@@ -399,11 +399,16 @@
     var rows = [['Time', GC.fmtTime(w.time)]];
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
-    var ll = L.latLng(w.lat, w.lon);
-    GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · waypoint', body: rowsHtml(rows), at: [w.lon, w.lat], zoom: L.latLngBounds(ll, ll),
+    var ll = L.latLng(w.lat, w.lon), cam = GC.camera && GC.camera.isPhotoPt(l, w), body = rowsHtml(rows);
+    if (cam) { var bd = document.createElement('div'); bd.appendChild(GC.camera.cardBody(l, w, function () { var s = c && c.root.querySelector('.gc-sub'); if (s) s.textContent = l.name + ' · ' + GC.camera.label(l, w); })); bd.insertAdjacentHTML('beforeend', body); body = bd; }
+    var c = GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · ' + (cam ? GC.camera.label(l, w) : 'waypoint'), body: body, at: [w.lon, w.lat], zoom: L.latLngBounds(ll, ll),
       photos: { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } },
       note: l.locked ? null : { text: w.note || '', save: function (t) { w.note = t; GC.renderLayer(l); GC.markDirty(l.id); } },
       more: l.locked ? [] : [
+        { label: 'Move pin', fn: function () {
+          GC.closeInspector(); GC.toast('Tap the map where “' + (w.name || 'the waypoint') + '” should be.', null, 8000);
+          GC.placeOnce = function (p) { w.lat = Math.round(p.lat * 1e7) / 1e7; w.lon = Math.round(p.lng * 1e7) / 1e7; w.acc = null; w.moved = true; GC.renderLayer(l); GC.markDirty(l.id); GC.toast('Moved.'); GC.inspectWaypoint(l, w); };
+        } },
         { label: 'Rename', fn: function () { GC.prompt('Rename waypoint', w.name || '', 'Name', 'Rename').then(function (n) { if (!n) return; w.name = n; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.inspectWaypoint(l, w); }); } },
         { label: 'Delete waypoint', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }] });
   };

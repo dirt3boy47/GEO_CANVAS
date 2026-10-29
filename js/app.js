@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.3' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.4' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -468,10 +468,14 @@
         v.trackLines[t.started || 0] = pl;
       });
     } else if (l.kind === 'waypoints') {
+      var cam = GC.camera;
       (l.waypoints || []).forEach(function (w) {
-        var m = L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
+        var pin = cam && cam.isPhotoPt(l, w); if (pin && !cam.shown(l, w)) return;
+        // photo points: a pin coloured by importance with the category's symbol; other waypoints: a dot
+        var m = pin ? L.marker([w.lat, w.lon], { pane: v.pn, icon: cam.icon(l, w), interactive: false, keyboard: false })
+          : L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
         m._gcWp = w;
-        if (w.name) m.bindTooltip(GC.esc(w.name) + (w.photos && w.photos.length ? ' 📷' : ''), { permanent: (l.waypoints.length < 150), direction: 'right', offset: [8, 0], className: 'gc-label' });
+        if (w.name) m.bindTooltip(GC.esc(w.name) + (!pin && w.photos && w.photos.length ? ' 📷' : ''), { permanent: (l.waypoints.length < 150), direction: 'right', offset: pin ? [12, -20] : [8, 0], className: 'gc-label' });
         v.group.addLayer(m);
       });
     }
@@ -498,6 +502,7 @@
     if (l.kind === 'vector') { var n = (l.geojson.features || []).length; return n + (n === 1 ? ' feature' : ' features'); }
     if (l.kind === 'raster') return 'Image';
     if (l.kind === 'track') { var d = 0, pts = 0; (l.tracks || []).forEach(function (t) { d += t.distance || 0; pts += t.points.length; }); return (l.tracks || []).length + ' track' + ((l.tracks || []).length === 1 ? '' : 's') + ' · ' + GC.fmtDist(d); }
+    if (l.kind === 'waypoints' && l.photoPts && GC.camera) { var wn = (l.waypoints || []).length, ws = l.waypoints.filter(function (w) { return GC.camera.shown(l, w); }).length; return wn + (wn === 1 ? ' photo point' : ' photo points') + (ws < wn ? ' · ' + ws + ' shown' : ''); }
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
     if (l.kind === 'cad') return 'reference drawing · ' + l.cad.lines.length.toLocaleString() + ' lines';
     if (l.kind === 'service') return 'online map · ' + l.service.source;
@@ -805,6 +810,8 @@
         if (GC.mymaps.hosted(src)) html += '<p class="hint">' + (GC.mymaps.isHere(src) ? '📱 Downloaded on this device: works offline.' : '☁ Shown from the cloud (needs internet). Download it in My maps to use it offline.') + '</p>';
         html += '<p class="hint">From My maps' + (src.folder ? ' › ' + GC.esc(src.folder.replace(/\//g, ' › ')) : '') + (src.crs ? ' · ' + GC.esc(String(src.crs)) : '') + '. The map is kept once in My maps and shown here; removing this layer does not delete it.</p>';
       }
+    } else if (l.kind === 'waypoints' && l.photoPts && GC.camera) {
+      html += GC.camera.optionsHtml(l);
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
@@ -832,6 +839,8 @@
         q('#lo-f').oninput = function () { l.style.fillOpacity = q('#lo-f').value / 100; q('#lo-fv').textContent = q('#lo-f').value + '%'; restyle(); };
         q('#lo-file').onchange = function () { l.style.useFileStyle = q('#lo-file').checked; restyle(); };
         q('#lo-label').onchange = function () { l.labelField = q('#lo-label').value || null; restyle(); };
+      } else if (q('#cam-min')) {
+        GC.camera.bindOptions(el, l, function () { GC.layerOptions(l); });
       } else if (q('#lo-color')) {
         q('#lo-color').oninput = function () { l.color = q('#lo-color').value; if (l.kind !== 'drawing') GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); };
       }

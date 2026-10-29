@@ -262,8 +262,8 @@
         res.push({ name: name, sub: l.name + ' · ' + (el.type === 'text' ? 'text' : 'marker'), score: s, target: { type: 'Point', coordinates: el.at }, open: function () { map.setView([el.at[1], el.at[0]], Math.max(map.getZoom(), 18)); GC.inspectItem(l, el, L.latLng(el.at[1], el.at[0])); } });
       });
       else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) {
-        var s = score(w.name, w.note || ''); if (!s) return;
-        res.push({ name: w.name || 'Waypoint', sub: l.name + ' · waypoint', score: s, target: { type: 'Point', coordinates: [w.lon, w.lat] }, open: function () { map.setView([w.lat, w.lon], Math.max(map.getZoom(), 18)); GC.inspectWaypoint(l, w); } });
+        var s = score(w.name, (w.note || '') + (GC.camera && GC.camera.isPhotoPt(l, w) ? ' ' + GC.camera.label(l, w) + ' photo' : '')); if (!s) return;
+        res.push({ name: w.name || 'Waypoint', sub: l.name + ' · ' + (GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.label(l, w) : 'waypoint'), score: s, target: { type: 'Point', coordinates: [w.lon, w.lat] }, open: function () { map.setView([w.lat, w.lon], Math.max(map.getZoom(), 18)); GC.inspectWaypoint(l, w); } });
       });
       else if (l.kind === 'track') (l.tracks || []).forEach(function (t) {
         var s = score(t.name, ''); if (!s || !t.points.length) return;

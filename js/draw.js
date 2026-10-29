@@ -434,6 +434,7 @@
   // In Navigate mode a tap on drawn ink or a GIS feature opens its tap card.
   map.on('click', function (e) {
     if (GC.mode === 'draw') return;
+    if (GC.placeOnce) { var put = GC.placeOnce; GC.placeOnce = null; put(e.latlng); return; } // Move pin: the next tap
     if (GC.georef && GC.georef.click(e)) return; // placing a plan: taps are control points
     if (GC.measure && GC.measure.click(e)) return; // measuring: taps add points
     GC.pickAt(e);

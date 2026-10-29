@@ -48,7 +48,7 @@
       if (l.kind === 'drawing') feats = feats.concat(itemFeatures(l, l.items || [], outlines));
       else if (l.kind === 'vector') (l.geojson.features || []).forEach(function (f) { var c = JSON.parse(JSON.stringify(f)); c.properties = Object.assign({ gc_layer: l.name }, c.properties); feats.push(c); });
       else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: 'gps_track', name: t.name, distance_m: Math.round(t.distance || 0), stroke: '#ff3d00' }, geometry: { type: 'LineString', coordinates: t.points.map(function (p) { return [r8(p[0]), r8(p[1])]; }) } }); });
-      else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: 'waypoint', name: w.name, note: w.note, time: w.time, accuracy_m: w.acc, gc_photos: w.photos && w.photos.length ? w.photos.map(function (r) { return r.id; }).join(',') : undefined }, geometry: { type: 'Point', coordinates: [r8(w.lon), r8(w.lat)] } }); });
+      else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { feats.push({ type: 'Feature', properties: { gc_layer: l.name, gc_type: GC.camera && GC.camera.isPhotoPt(l, w) ? 'photo_point' : 'waypoint', name: w.name, note: w.note, time: w.time, accuracy_m: w.acc, category: GC.camera && GC.camera.isPhotoPt(l, w) ? (GC.camera.catOf(l, w) || { name: undefined }).name : undefined, importance: GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.impOf(w).n : undefined, 'marker-color': GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.impOf(w).c : undefined, gc_photos: w.photos && w.photos.length ? w.photos.map(function (r) { return r.id; }).join(',') : undefined }, geometry: { type: 'Point', coordinates: [r8(w.lon), r8(w.lat)] } }); });
     });
     return feats;
   }
@@ -140,7 +140,7 @@
     var w = '', t = '', iso = function (d) { return new Date(d).toISOString(); };
     project.layers.forEach(function (l) {
       if (layerIds.indexOf(l.id) < 0) return;
-      if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (p) { w += '<wpt lat="' + p.lat + '" lon="' + p.lon + '">' + (p.ele != null ? '<ele>' + p.ele + '</ele>' : '') + '<time>' + iso(p.time) + '</time><name>' + esc(p.name) + '</name>' + (p.note ? '<desc>' + esc(p.note) + '</desc>' : '') + '</wpt>\n'; });
+      if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (p) { w += '<wpt lat="' + p.lat + '" lon="' + p.lon + '">' + (p.ele != null ? '<ele>' + p.ele + '</ele>' : '') + '<time>' + iso(p.time) + '</time><name>' + esc(p.name) + '</name>' + (p.note ? '<desc>' + esc(p.note) + '</desc>' : '') + (GC.camera && GC.camera.isPhotoPt(l, p) ? '<type>' + esc(GC.camera.label(l, p)) + '</type>' : '') + '</wpt>\n'; });
       if (l.kind === 'track') (l.tracks || []).forEach(function (tr) { t += '<trk><name>' + esc(tr.name) + '</name><trkseg>\n' + tr.points.map(function (p) { return '<trkpt lat="' + p[1] + '" lon="' + p[0] + '">' + (p[3] != null ? '<ele>' + p[3] + '</ele>' : '') + '<time>' + iso(p[2]) + '</time></trkpt>'; }).join('\n') + '\n</trkseg></trk>\n'; });
       if (l.kind === 'vector') (l.geojson.features || []).forEach(function (f) {
         var g = f.geometry, p = f.properties || {}, nm = esc(p.name || p.NAME || p.Name || p.label || p.id || ''), parts = [];
