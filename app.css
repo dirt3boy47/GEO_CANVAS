@@ -634,7 +634,7 @@ body.phone #measure-panel { max-height: 40%; }
 body.phone .cam-hero img { max-height: 28vh; }
 
 /* ---------- Photo register (js/register.js) ---------- */
-#modal.reg { width: min(1180px, calc(100vw - 24px)); height: calc(100% - 20px); max-height: none; display: flex; flex-direction: column; padding: 14px 16px 12px; overflow: hidden; }
+#modal.reg { width: min(1180px, calc(100vw - 24px)); height: calc(100% - 20px); max-height: none; display: flex; flex-direction: column; padding: 14px 16px 12px; overflow: hidden; overflow: clip; }
 #modal.reg .rg { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .rg-top h2 small { color: var(--muted); font-size: 13.5px; font-weight: 600; margin-left: 6px; }
 .rg-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
@@ -648,12 +648,12 @@ body.phone .cam-hero img { max-height: 28vh; }
 .rg-head [data-s] { cursor: pointer; user-select: none; }
 .rg-head [data-s].on { color: var(--ink); }
 .rg-head [data-s].on::after { content: ' ' attr(data-dir); }
-.rg-tick { display: grid; place-items: center; cursor: pointer; }
-.rg-tick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.rg-tick { display: grid; place-items: center; cursor: pointer; border: 0; background: none; padding: 0; color: inherit; -webkit-tap-highlight-color: transparent; }
 .rg-tick i { width: 30px; height: 30px; border-radius: 9px; border: 2px solid var(--line); background: var(--panel-solid); display: grid; place-items: center; }
-.rg-tick input:checked + i { background: #1e8e3e; border-color: #1e8e3e; }
-.rg-tick input:checked + i::after { content: ''; width: 12px; height: 7px; border: solid #fff; border-width: 0 0 3px 3px; transform: translate(0, -2px) rotate(-45deg); }
-.rg-tick input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rg-tick[aria-pressed=true] i { background: #1e8e3e; border-color: #1e8e3e; }
+.rg-tick[aria-pressed=true] i::after { content: ''; width: 12px; height: 7px; border: solid #fff; border-width: 0 0 3px 3px; transform: translate(0, -2px) rotate(-45deg); }
+.rg-tick:focus-visible i { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rg-tick:disabled { opacity: .5; cursor: default; }
 .rg-ph { width: 66px; height: 50px; border: 0; padding: 0; border-radius: 8px; overflow: hidden; background: var(--chip); position: relative; cursor: zoom-in; }
 .rg-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rg-ph em { position: absolute; right: 3px; bottom: 3px; background: rgba(0,0,0,.6); color: #fff; font: 700 10px var(--font); font-style: normal; padding: 1px 5px; border-radius: 6px; }
@@ -680,7 +680,6 @@ body.phone .cam-hero img { max-height: 28vh; }
   .rg-taken { grid-area: taken; font-size: 12px; color: var(--muted); } .rg-who { grid-area: who; font-size: 12px; }
   .rg-who small { display: inline; margin-left: 4px; }
   .rg-note { grid-area: note; } .rg-note:empty { display: none; } .rg-go { grid-area: go; }
-  .rg-tools .seg { order: 3; } #rg-csv { order: 4; }
   #modal.reg .actions .hint { display: none; }
 }
 /* the checked tick on a photo point's card */
@@ -745,20 +744,34 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
 .cloud-status.job, #cloud-status.job { color: #b07d00; }
 /* register: select column first, the checked tick sits in the Checked column */
 .rg-row { grid-template-columns: 40px 70px minmax(130px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 124px minmax(150px, 1.1fr) minmax(110px, 1.3fr) 64px; }
-.rg-sel { display: grid; place-items: center; cursor: pointer; }
-.rg-sel input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.rg-sel { display: grid; place-items: center; cursor: pointer; border: 0; background: none; padding: 0; color: inherit; min-height: 36px; -webkit-tap-highlight-color: transparent; }
 .rg-sel i { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel-solid); display: grid; place-items: center; }
-.rg-sel input:checked + i { background: var(--accent); border-color: var(--accent); }
-.rg-sel input:checked + i::after { content: ''; width: 9px; height: 5px; border: solid var(--accent-ink); border-width: 0 0 2.5px 2.5px; transform: translate(0, -1px) rotate(-45deg); }
-.rg-sel input:indeterminate + i { background: var(--accent); border-color: var(--accent); }
-.rg-sel input:indeterminate + i::after { content: ''; width: 10px; height: 2.5px; background: var(--accent-ink); }
-.rg-sel input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rg-sel[aria-pressed=true] i { background: var(--accent); border-color: var(--accent); }
+.rg-sel[aria-pressed=true] i::after { content: ''; width: 9px; height: 5px; border: solid var(--accent-ink); border-width: 0 0 2.5px 2.5px; transform: translate(0, -1px) rotate(-45deg); }
+.rg-sel[aria-pressed=mixed] i { background: var(--accent); border-color: var(--accent); }
+.rg-sel[aria-pressed=mixed] i::after { content: ''; width: 10px; height: 2.5px; background: var(--accent-ink); }
+.rg-sel:focus-visible i { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rg-row.picked { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .rg-row.done.picked { background: color-mix(in srgb, var(--accent) 14%, rgba(30, 142, 62, .07)); }
 .rg-chkcell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .rg-chkcell .rg-tick i { width: 28px; height: 28px; }
-.rg-selbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; background: color-mix(in srgb, var(--accent) 12%, var(--panel-solid)); border-radius: 10px; padding: 6px 10px; margin: -2px 0 8px; }
-.rg-selbar .link { margin-left: auto; }
+.rg-strip { display: contents; } /* wide screens: everything in one wrapping toolbar */
+.rg-foot { flex-wrap: nowrap !important; min-height: 44px; }
+.rg-selbar { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; white-space: nowrap; min-width: 0; overflow: hidden; }
+.rg-selbar[hidden] { display: none; }
+.rg-selbar b { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 4px 10px; }
+.rg-selbar .rg-selwhat { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) {
+  /* phones: search on its own line, then two rows that scroll sideways, so the list gets the screen */
+  .rg-tools { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 8px; margin: 8px 0; }
+  #modal .rg-tools input[type=search] { flex: none; width: 100%; }
+  .rg-strip { display: flex; gap: 8px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .rg-strip::-webkit-scrollbar { display: none; }
+  .rg-strip > * { flex: none; }
+  .rg-strip .btn { padding: 8px 12px; }
+  .rg-selbar .rg-selwhat { display: none; }
+  #modal.reg .actions.rg-foot { margin-top: 8px; }
+}
 @media (max-width: 700px) {
   .rg-row { grid-template-columns: 36px 76px 1fr 1fr; grid-template-areas: 'sel ph name name' 'sel ph cat imp' 'sel ph taken taken' 'chk chk chk go' 'note note note note'; }
   .rg-sel { grid-area: sel; } .rg-chkcell { grid-area: chk; } .rg-chkcell .rg-who small { display: inline; margin-left: 4px; }

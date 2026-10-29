@@ -4,7 +4,7 @@
    the page reloads into it (js/panels.js); files missing from the copy come from the network.
    Queensland imagery, lot-boundary and Map library tiles: saved offline areas ("gc-offline", never trimmed) first; imagery seen while
    browsing is kept in "gc-tiles" (trimmed to the newest tiles). Downloads for offline areas (cache: no-store) pass straight through. */
-var SHELL = 'gc-shell-v30'; // GeoCanvas 2026-10-29.14
+var SHELL = 'gc-shell-v31'; // GeoCanvas 2026-10-29.15
 var ASSETS = ['./', 'index.html', 'app.css', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/proj4.js', 'vendor/jszip.min.js', 'vendor/togeojson.js', 'vendor/geotiff.js',
   'js/geo.js', 'js/ink.js', 'js/store.js', 'js/importers.js', 'js/exporters.js', 'js/app.js', 'js/draw.js', 'js/photos.js', 'js/cards.js', 'js/camera.js', 'js/register.js', 'js/report.js', 'js/panels.js', 'js/measure.js', 'js/cadastre.js', 'js/georef.js', 'js/geopdf.js', 'js/cad.js', 'js/library.js', 'js/mymaps.js', 'js/offline.js', 'js/ui.js', 'js/phone.js', 'js/cloud.js', 'js/account.js', 'js/workspace.js',
