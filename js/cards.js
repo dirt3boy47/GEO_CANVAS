@@ -102,8 +102,14 @@
     // keep the place visible above the sheet
     setTimeout(function () {
       if (!open) return;
-      var sz = map.getSize(), h = sheetEl.offsetHeight, pt = map.latLngToContainerPoint(ll), want = L.point(sz.x / 2, Math.max(70, (sz.y - h) / 2));
-      if (pt.y > sz.y - h - 20 || pt.y < 60 || pt.x < 20 || pt.x > sz.x - 20) map.panBy(pt.subtract(want), { animate: true });
+      var sz = map.getSize(), r = sheetEl.getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect(), pt = map.latLngToContainerPoint(ll), want;
+      if (r.left - mr.left > sz.x * 0.3) { // docked on the right (phone held sideways): keep the place in the left part
+        want = L.point((r.left - mr.left) / 2, sz.y / 2);
+        if (pt.x > r.left - mr.left - 30 || pt.x < 20 || pt.y < 70 || pt.y > sz.y - 80) map.panBy(pt.subtract(want), { animate: true });
+      } else { // along the bottom: keep it above the sheet
+        want = L.point(sz.x / 2, Math.max(90, (r.top - mr.top) / 2 + 20));
+        if (pt.y > r.top - mr.top - 20 || pt.y < 80 || pt.x < 20 || pt.x > sz.x - 20) map.panBy(pt.subtract(want), { animate: true });
+      }
     }, 60);
     return me;
   }

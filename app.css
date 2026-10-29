@@ -70,8 +70,8 @@ body.draw #crosshair { display: none; }
 @media (max-width: 1120px) { .tb span { display: none; } .tb { min-width: 42px; height: 42px; padding: 0; } .tb svg { width: 22px; height: 22px; } }
 @media (max-width: 860px) { .seg span { display: none; } .title-block { max-width: 150px; padding: 0 4px; } }
 @media (max-width: 640px) { .title-block { display: none; } }
-/* phones: the top bar's buttons don't all fit, so it scrolls sideways (Camera stays near the start) */
-@media (max-width: 700px) { #topbar { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; } #topbar::-webkit-scrollbar { display: none; } #topbar .spacer { flex: 0 0 4px; } }
+/* narrow screens (iPad mini upright, Split View): the top bar's buttons don't all fit, so it scrolls sideways */
+@media (max-width: 960px) { #topbar { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; } #topbar::-webkit-scrollbar { display: none; } #topbar .spacer { flex: 0 0 4px; } }
 
 #sidebar { position: fixed; z-index: 990; top: calc(76px + var(--safe-t)); left: calc(10px + var(--safe-l)); width: 330px; max-height: calc(100% - 180px - var(--safe-t) - var(--safe-b));
   display: flex; flex-direction: column; overflow: hidden; }
@@ -686,3 +686,25 @@ body.phone .cam-hero img { max-height: 28vh; }
 .cam-check.on i::after { content: ''; width: 10px; height: 6px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: translate(0, -1px) rotate(-45deg); }
 .pp-chk { position: absolute; right: 6px; bottom: 10px; width: 24px; height: 24px; border-radius: 50%; background: #1e8e3e; color: #fff; font: 800 14px/24px var(--font); text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 #pp-reg { padding: 6px 12px; font-size: 13px; }
+/* phones held sideways (Galaxy S25 / iPhone landscape): slimmer bars, tab bar and sheets centred, more map */
+@media (max-height: 500px) {
+  body.phone { --pbar: calc(62px + var(--safe-b)); }
+  body.phone #topbar { min-height: 44px; padding: 2px 6px; }
+  body.phone #project-name { font-size: 14px; }
+  body.phone #phone-bar { height: 52px; left: 50%; right: auto; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); }
+  #phone-bar button { flex-direction: row; gap: 6px; font-size: 12px; }
+  #phone-bar .pb-cam { width: 58px; height: 58px; margin-top: -14px; }
+  #phone-bar .pb-cam svg { width: 27px; height: 27px; }
+  .pb-n { top: 3px; left: calc(50% + 10px); }
+  body.phone .phone-sheet, body.phone #card-sheet, body.phone #sidebar, body.phone .pop, body.phone .menu, body.phone #map-panel {
+    left: 50% !important; right: auto !important; transform: translateX(-50%); width: min(640px, calc(100% - 16px)) !important; max-height: calc(100% - var(--pbar) - 62px - var(--safe-t)); }
+  body.phone #phone-photos { top: calc(54px + var(--safe-t)) !important; }
+  /* the card docks on the right so the pin stays in view on the left */
+  body.phone #card-sheet { left: auto !important; right: calc(8px + var(--safe-r)) !important; transform: none; width: min(400px, 52%) !important; top: calc(54px + var(--safe-t)) !important; max-height: none !important; }
+  body.phone .cam-hero img { max-height: 30vh; }
+  .cam-sheet .cam-thumb { width: 64px; height: 64px; }
+  .cam-chip, .cam-imp { min-height: 34px; padding: 5px 10px; font-size: 13px; }
+  .cam-lbl { margin: 8px 0 4px; }
+}
+/* the photo sheet's Save / Discard stay in reach even when the sheet has to scroll */
+.cam-sheet .actions { position: sticky; bottom: -18px; background: var(--panel-solid); padding: 10px 0 8px; margin-bottom: -8px; z-index: 1; }

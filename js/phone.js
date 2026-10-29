@@ -32,7 +32,19 @@
   document.body.appendChild(more);
 
   // ---------- phone or not ----------
-  function isPhone() { return global.innerWidth <= PHONE_W; }
+  // A phone is a phone whichever way it is held and whatever the browser claims: Android (Galaxy S25 etc.) and iPhone
+  // in landscape are wider than PHONE_W, and Chrome's "Desktop site" reports a 980 px window. So: a narrow window, or a
+  // touch device whose screen is small on its short side, or a phone user agent. Settings › Screen layout overrides it.
+  function layoutPref() { try { return localStorage.getItem('gc.layout') || 'auto'; } catch (e) { return 'auto'; } }
+  function isPhone() {
+    var pref = layoutPref();
+    if (pref === 'phone') return true;
+    if (pref === 'tablet') return false;
+    var sw = Math.min(global.screen.width || 9999, global.screen.height || 9999), coarse = global.matchMedia && global.matchMedia('(pointer: coarse)').matches;
+    var ua = navigator.userAgent || '', uaPhone = /Android.+Mobile|iPhone|iPod|Windows Phone|Mobile Safari(?!.*iPad)/i.test(ua) && !/iPad|Tablet/i.test(ua);
+    if (navigator.userAgentData && navigator.userAgentData.mobile) uaPhone = true;
+    return global.innerWidth <= PHONE_W || (coarse && sw <= 540) || uaPhone;
+  }
   function apply() {
     var on = isPhone();
     if (on === body.classList.contains('phone')) return;
@@ -43,6 +55,8 @@
     setTimeout(function () { map.invalidateSize(); }, 50);
   }
   global.addEventListener('resize', apply);
+  global.addEventListener('orientationchange', function () { setTimeout(apply, 300); });
+  global.addEventListener('load', apply);
 
   // ---------- tabs ----------
   var cur = 'map';
@@ -196,5 +210,7 @@
   });
 
   apply();
-  GC.phone = { isOn: function () { return body.classList.contains('phone'); }, tab: tab, paint: paint };
+  /** Settings › Screen layout: 'auto', 'phone' or 'tablet'. */
+  function setLayout(v) { try { if (v === 'auto') localStorage.removeItem('gc.layout'); else localStorage.setItem('gc.layout', v); } catch (e) { /* private mode */ } apply(); }
+  GC.phone = { isOn: function () { return body.classList.contains('phone'); }, tab: tab, paint: paint, layout: layoutPref, setLayout: setLayout };
 })(window);

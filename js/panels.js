@@ -845,6 +845,7 @@
     var html = '<h2>Settings</h2>' +
       '<label class="opt"><input type="checkbox" id="st-finger"' + (s.fingerDraw ? ' checked' : '') + '> Draw with finger in Draw mode (two fingers pan and zoom). Off: only Apple Pencil draws and fingers move the map.</label>' +
       '<label class="opt"><input type="checkbox" id="st-cross"' + (s.crosshair ? ' checked' : '') + '> Show centre crosshair</label>' +
+      '<label class="field" style="margin:8px 0">Screen layout<select id="st-layout"><option value="auto">Automatic (phone layout on phones)</option><option value="phone">Phone: tab bar and big camera button</option><option value="tablet">Tablet / computer: full top bar</option></select></label>' +
       '<label class="field" style="margin:8px 0">Coordinate format<select id="st-fmt"><option value="dd">Decimal degrees</option><option value="dms">Degrees minutes seconds</option><option value="mga">MGA2020 grid (easting/northing)</option></select></label>' +
       '<div class="pop-title small">Team & cloud</div><div id="st-cloud"></div>' +
       '<div class="pop-title small">Offline maps</div><p class="hint" style="margin:0 0 6px">Select areas of the map to save, so imagery and lot boundaries show with no signal.</p>' +
@@ -856,6 +857,7 @@
     GC.modal(html, function (el, close) {
       var q = function (x) { return el.querySelector(x); };
       q('#st-fmt').value = s.coordFmt;
+      if (GC.phone) { q('#st-layout').value = GC.phone.layout(); q('#st-layout').onchange = function () { GC.phone.setLayout(q('#st-layout').value); close(); }; } else q('#st-layout').parentNode.hidden = true;
       q('#st-finger').onchange = function () { s.fingerDraw = q('#st-finger').checked; GC.saveSettings(); };
       q('#st-cross').onchange = function () { s.crosshair = q('#st-cross').checked; $('crosshair').hidden = !s.crosshair; GC.saveSettings(); };
       q('#st-fmt').onchange = function () { s.coordFmt = q('#st-fmt').value; GC.saveSettings(); GC.updateHud(); };
