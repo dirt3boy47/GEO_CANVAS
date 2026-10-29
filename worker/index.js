@@ -13,19 +13,37 @@
    DELETE /api/projects/:id                 delete for everyone (leaves a tombstone so other devices know)
    POST   /api/projects/:id/missing         {hashes} → the ones the server does not have
    PUT    /api/projects/:id/blobs/:hash     store a blob (text: JSON, or base64 for binary files)
-   GET    /api/projects/:id/blobs/:hash     fetch a blob */
+   GET    /api/projects/:id/blobs/:hash     fetch a blob
+   Blobs of 32 KB or more live in R2 (binding FILES) when it is bound; D1 keeps a marker row for each. */
 
 const CHUNK = 600000; // characters; ≤ 1.8 MB of UTF-8, under D1's 2 MB row limit
 const MAX_BLOB = 90 * 1024 * 1024;
 const ID = /^[0-9a-z]{4,40}$/i;
 const HASH = /^[0-9a-f]{16,64}$/;
+// Large items (map pieces, photos, big GIS data) are kept in R2 (binding FILES) when it is bound; D1 then holds a marker
+// row "@r2:<length>" so uploads, the "missing" check and clean-up work the same for both.
+const R2_MIN = 32 * 1024, R2_MARK = '@r2:';
+const r2key = (pid, hash) => 'p/' + pid + '/' + hash;
+const SIZE_SQL = "COALESCE(SUM(CASE WHEN data LIKE '@r2:%' THEN CAST(substr(data, 5) AS INTEGER) ELSE LENGTH(data) END), 0)";
+async function r2Drop(env, pid, hashes) {
+  if (!env.FILES || !hashes.length) return;
+  for (let i = 0; i < hashes.length; i += 1000) await env.FILES.delete(hashes.slice(i, i + 1000).map((h) => r2key(pid, h)));
+}
+/** A large blob still in D1 moves to R2 the first time it is read. */
+async function moveToR2(env, pid, hash, text) {
+  await env.FILES.put(r2key(pid, hash), text, { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM blobs WHERE pid = ? AND hash = ? AND idx > 0').bind(pid, hash),
+    env.DB.prepare('UPDATE blobs SET data = ? WHERE pid = ? AND hash = ? AND idx = 0').bind(R2_MARK + text.length, pid, hash)
+  ]);
+}
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
     try {
-      return await api(request, env, url);
+      return await api(request, env, url, ctx);
     } catch (e) {
       return json({ error: 'Server error: ' + (e && e.message ? e.message : String(e)) }, 500);
     }
@@ -81,7 +99,7 @@ async function owner(env, team, id) {
   return !r ? 'none' : r.team_id === team.id ? 'mine' : 'other';
 }
 
-async function api(request, env, url) {
+async function api(request, env, url, ctx) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   const m = request.method;
 
@@ -134,6 +152,8 @@ async function api(request, env, url) {
     if (m === 'PUT') return putProject(request, env, id, team);
     if (m === 'DELETE') {
       if (own !== 'mine') return json({ error: 'Not in the cloud.' }, 404);
+      const inR2 = (await env.DB.prepare("SELECT hash FROM blobs WHERE pid = ? AND idx = 0 AND data LIKE '@r2:%'").bind(id).all()).results.map((r) => r.hash);
+      await r2Drop(env, id, inR2);
       await env.DB.batch([
         env.DB.prepare('UPDATE projects SET deleted = 1, manifest = NULL, size = 0, rev = rev + 1, modified = ? WHERE id = ?').bind(Date.now(), id),
         env.DB.prepare('DELETE FROM blobs WHERE pid = ?').bind(id)
@@ -156,13 +176,29 @@ async function api(request, env, url) {
       if (own !== 'mine') return json({ error: 'Blob not found.' }, 404);
       const rows = (await env.DB.prepare('SELECT data FROM blobs WHERE pid = ? AND hash = ? ORDER BY idx').bind(id, hash).all()).results;
       if (!rows.length) return json({ error: 'Blob not found.' }, 404);
-      return new Response(rows.map((r) => r.data).join(''), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=31536000, immutable' } });
+      const head = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=31536000, immutable' };
+      if (rows.length === 1 && rows[0].data.startsWith(R2_MARK)) {
+        const obj = env.FILES ? await env.FILES.get(r2key(id, hash)) : null;
+        if (!obj) return json({ error: 'Blob not found.' }, 404);
+        return new Response(obj.body, { headers: head });
+      }
+      const text = rows.map((r) => r.data).join('');
+      if (env.FILES && text.length >= R2_MIN && ctx) ctx.waitUntil(moveToR2(env, id, hash, text).catch(() => {}));
+      return new Response(text, { headers: head });
     }
     if (m === 'PUT') {
       const done = await env.DB.prepare('SELECT 1 AS x FROM blobs WHERE pid = ? AND hash = ? AND idx = 0').bind(id, hash).first();
       if (done) return json({ ok: true });
       const text = await request.text();
       if (text.length > MAX_BLOB) return json({ error: 'That item is too large for cloud sync (over 90 MB).' }, 413);
+      if (env.FILES && text.length >= R2_MIN) { // R2 first, then the marker that says it is complete
+        await env.FILES.put(r2key(id, hash), text, { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM blobs WHERE pid = ? AND hash = ?').bind(id, hash),
+          env.DB.prepare('INSERT INTO blobs (pid, hash, idx, data) VALUES (?, ?, 0, ?)').bind(id, hash, R2_MARK + text.length)
+        ]);
+        return json({ ok: true });
+      }
       const chunks = [];
       for (let i = 0; i < text.length || i === 0; i += CHUNK) chunks.push(text.slice(i, i + CHUNK));
       await env.DB.prepare('DELETE FROM blobs WHERE pid = ? AND hash = ?').bind(id, hash).run();
@@ -200,8 +236,10 @@ async function putProject(request, env, id, team) {
     return json(Object.assign({ error: 'Changed on another device.' }, row ? shape(row) : { rev: 0, missing: true }), 409);
   }
   // Drop data the new revision no longer uses, then record the project's size.
+  const gone = (await env.DB.prepare("SELECT hash FROM blobs WHERE pid = ?1 AND idx = 0 AND data LIKE '@r2:%' AND hash NOT IN (SELECT value FROM json_each(?2))").bind(id, JSON.stringify(blobs)).all()).results.map((r) => r.hash);
   await env.DB.prepare('DELETE FROM blobs WHERE pid = ?1 AND hash NOT IN (SELECT value FROM json_each(?2))').bind(id, JSON.stringify(blobs)).run();
-  const size = (await env.DB.prepare('SELECT COALESCE(SUM(LENGTH(data)), 0) AS s FROM blobs WHERE pid = ?').bind(id).first()).s;
+  await r2Drop(env, id, gone);
+  const size = (await env.DB.prepare('SELECT ' + SIZE_SQL + ' AS s FROM blobs WHERE pid = ?').bind(id).first()).s;
   const row = await env.DB.prepare('UPDATE projects SET size = ? WHERE id = ? RETURNING rev, modified').bind(size, id).first();
   return json({ rev: row.rev, modified: row.modified });
 }

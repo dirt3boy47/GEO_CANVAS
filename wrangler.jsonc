@@ -8,5 +8,8 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "geocanvas", "database_id": "b0c0f1ef-6c5c-4f4f-807d-2764aa2a6d2f", "migrations_dir": "migrations" }
   ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "geocanvas-files" }
+  ],
   "observability": { "enabled": true }
 }
