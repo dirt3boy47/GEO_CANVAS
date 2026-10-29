@@ -138,6 +138,7 @@
     var phone = document.body.classList.contains('phone'), shell = null;
     var refit = function () { if (shell) shell.refit(); };
     var me = cur = { pop: phone ? null : pop, root: root, refit: refit, spec: spec };
+    root.addEventListener('load', function () { refit(); }, true); // pictures arriving later (photo, balloon images) grow the card
     // photos and note
     var paintPhotos = function () {
       var box = root.querySelector('.gb-photos');
@@ -297,7 +298,7 @@
         res.push({ name: name, sub: l.name + ' · ' + (el.type === 'text' ? 'text' : 'marker'), score: s, target: { type: 'Point', coordinates: el.at }, open: function () { map.setView([el.at[1], el.at[0]], Math.max(map.getZoom(), 18)); GC.inspectItem(l, el, L.latLng(el.at[1], el.at[0])); } });
       });
       else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) {
-        var s = score(w.name, (w.note || '') + (GC.camera && GC.camera.isPhotoPt(l, w) ? ' ' + GC.camera.label(l, w) + ' photo' : '')); if (!s) return;
+        var s = score(w.name, (w.note || '') + (GC.camera && GC.camera.isPhotoPt(l, w) ? ' ' + GC.camera.label(l, w) + (w.chk ? ' checked' : ' to-check unchecked') : '')); if (!s) return; // no "photo": its "to" would match "to check"
         res.push({ name: w.name || 'Waypoint', sub: l.name + ' · ' + (GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.label(l, w) : 'waypoint'), score: s, target: { type: 'Point', coordinates: [w.lon, w.lat] }, open: function () { map.setView([w.lat, w.lon], Math.max(map.getZoom(), 18)); GC.inspectWaypoint(l, w); } });
       });
       else if (l.kind === 'track') (l.tracks || []).forEach(function (t) {

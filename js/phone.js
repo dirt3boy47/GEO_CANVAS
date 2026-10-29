@@ -12,7 +12,7 @@
   var bar = document.createElement('nav'); bar.id = 'phone-bar'; bar.className = 'panel';
   bar.innerHTML =
     '<button data-t="map" class="on"><svg><use xlink:href="#i-gps"/></svg><span>Map</span></button>' +
-    '<button data-t="photos"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="2" fill="currentColor"/><path d="m4 18 5.5-5 4 3.5L17 13l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Photos</span><i class="pb-n" hidden></i></button>' +
+    '<button data-t="photos"><svg><use xlink:href="#i-photos"/></svg><span>Photos</span><i class="pb-n" hidden></i></button>' +
     '<button data-t="camera" class="pb-cam" aria-label="Take a photo"><svg><use xlink:href="#i-camera"/></svg></button>' +
     '<button data-t="layers"><svg><use xlink:href="#i-layers"/></svg><span>Layers</span></button>' +
     '<button data-t="more"><svg><use xlink:href="#i-more"/></svg><span>More</span></button>';
@@ -21,7 +21,7 @@
   locate.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   document.body.appendChild(locate);
   var photos = document.createElement('section'); photos.id = 'phone-photos'; photos.className = 'phone-sheet'; photos.hidden = true;
-  photos.innerHTML = '<div class="cs-grab"></div><div class="pp-head"><h2>Photos <small id="pp-count"></small></h2><div class="seg small" id="pp-sort"><button data-s="imp" class="on">Importance</button><button data-s="new">Newest</button><button data-s="near">Nearest</button></div></div>' +
+  photos.innerHTML = '<div class="cs-grab"></div><div class="pp-head"><h2>Photos <small id="pp-count"></small></h2><button class="btn" id="pp-reg">Register</button><div class="seg small" id="pp-sort"><button data-s="imp" class="on">Importance</button><button data-s="new">Newest</button><button data-s="near">Nearest</button></div></div>' +
     '<div class="pp-chips" id="pp-filter"></div><div class="pp-grid" id="pp-grid"></div>';
   document.body.appendChild(photos);
   var more = document.createElement('section'); more.id = 'phone-more'; more.className = 'phone-sheet'; more.hidden = true;
@@ -104,7 +104,7 @@
   };
 
   // ---------- Photos tab ----------
-  var sort = 'imp', filt = { min: 0, cat: null };
+  var sort = 'imp', filt = { min: 0, cat: null, todo: false };
   function all() {
     var out = [];
     if (!GC.project) return out;
@@ -129,10 +129,12 @@
     var me = fix && Date.now() - fix.t < 120000 ? [fix.lon, fix.lat] : null;
     // filter chips: importance, then the categories in use
     var cats = {}; items.forEach(function (x) { var c = cam && cam.catOf(x.l, x.w); if (c) cats[c.id] = c; });
-    var chips = [[0, 'All'], [3, 'High +'], [4, 'Critical']].map(function (m) { return '<button data-min="' + m[0] + '" class="' + (filt.min === m[0] && !filt.cat ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') +
+    var chips = [[0, 'All'], [3, 'High +'], [4, 'Critical']].map(function (m) { return '<button data-min="' + m[0] + '" class="' + (filt.min === m[0] && !filt.cat && !filt.todo ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') +
+      '<button data-todo class="' + (filt.todo ? 'on' : '') + '">To check</button>' +
       Object.keys(cats).map(function (k) { return '<button data-cat="' + esc(k) + '" class="' + (filt.cat === k ? 'on' : '') + '">' + esc(cats[k].name) + '</button>'; }).join('');
     $('pp-filter').innerHTML = chips;
     var shown = items.filter(function (x) {
+      if (filt.todo) return !x.w.chk;
       if (filt.cat) return (x.w.cat || 'gen') === filt.cat;
       return (x.w.imp | 0) >= filt.min;
     });
@@ -149,7 +151,7 @@
     grid.innerHTML = shown.map(function (x, i) {
       var imp = cam ? cam.impOf(x.w) : { n: '', c: '#6b7280' }, c = cam && cam.catOf(x.l, x.w), photo = x.w.photos && x.w.photos[0];
       return '<button class="pp-tile" data-i="' + i + '" style="--ic:' + imp.c + '"><div class="pp-img">' + (photo ? '<img data-ph="' + esc(photo.id) + '" alt="">' : '') +
-        (cam && cam.isPhotoPt(x.l, x.w) ? '<span class="pp-imp">' + esc(imp.n) + '</span>' : '') + (x.w.photos && x.w.photos.length > 1 ? '<span class="pp-more">' + x.w.photos.length + '</span>' : '') + '</div>' +
+        (cam && cam.isPhotoPt(x.l, x.w) ? '<span class="pp-imp">' + esc(imp.n) + '</span>' : '') + (x.w.photos && x.w.photos.length > 1 ? '<span class="pp-more">' + x.w.photos.length + '</span>' : '') + (x.w.chk ? '<span class="pp-chk" title="' + esc(cam.checkedText(x.w)) + '">✓</span>' : '') + '</div>' +
         '<b>' + esc(x.w.name || 'Photo') + '</b><small>' + esc((c ? c.name + ' · ' : '') + ago(x.w.time) + (x.d != null ? ' · ' + (x.d < 3 ? 'here' : GC.fmtDist(x.d)) : '')) + '</small></button>';
     }).join('');
     [].forEach.call(grid.querySelectorAll('img[data-ph]'), function (im) { GC.photos.url(im.getAttribute('data-ph')).then(function (u) { if (u) im.src = u; }); });
@@ -161,6 +163,7 @@
       };
     });
   }
+  $('pp-reg').onclick = function () { tab('map'); if (GC.register) GC.register.open(); };
   $('pp-sort').addEventListener('click', function (e) {
     var b = e.target.closest('[data-s]'); if (!b) return;
     sort = b.getAttribute('data-s');
@@ -170,8 +173,9 @@
   });
   $('pp-filter').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
-    if (b.hasAttribute('data-cat')) { var k = b.getAttribute('data-cat'); filt.cat = filt.cat === k ? null : k; filt.min = 0; }
-    else { filt.min = +b.getAttribute('data-min'); filt.cat = null; }
+    if (b.hasAttribute('data-todo')) { filt.todo = !filt.todo; filt.cat = null; filt.min = 0; }
+    else if (b.hasAttribute('data-cat')) { var k = b.getAttribute('data-cat'); filt.cat = filt.cat === k ? null : k; filt.min = 0; filt.todo = false; }
+    else { filt.min = +b.getAttribute('data-min'); filt.cat = null; filt.todo = false; }
     paint();
   });
   // keep the list and badge current as photos are added, edited or synced

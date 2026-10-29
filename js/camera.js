@@ -39,18 +39,29 @@
     var ch = c ? c.name.trim().charAt(0).toUpperCase() : '?';
     return '<text x="' + (x + 12 * s) + '" y="' + (y + 16.5 * s) + '" text-anchor="middle" font-size="' + 14 * s + '" font-weight="700" font-family="-apple-system,Segoe UI,Roboto,sans-serif" fill="#fff">' + esc(ch) + '</text>';
   }
-  function pinSvg(color, c) {
-    return '<svg width="30" height="40" viewBox="0 0 30 40"><path d="M15 38.5S3 26.6 3 15a12 12 0 0 1 24 0c0 11.6-12 23.5-12 23.5z" fill="' + color + '" stroke="#fff" stroke-width="2.2"/>' + symbol(c, 6.6, 6.6, 0.7) + '</svg>';
+  var TICK = '<g transform="translate(24 6)"><circle r="6.5" fill="#1e8e3e" stroke="#fff" stroke-width="1.8"/><path d="m-3 0 2 2.2L3.2-2.4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>';
+  function pinSvg(color, c, done) {
+    return '<svg width="32" height="40" viewBox="0 0 32 40"><path d="M15 38.5S3 26.6 3 15a12 12 0 0 1 24 0c0 11.6-12 23.5-12 23.5z" fill="' + color + '" stroke="#fff" stroke-width="2.2"/>' + symbol(c, 6.6, 6.6, 0.7) + (done ? TICK : '') + '</svg>';
   }
-  /** Map pin for a photo point: importance colour, category symbol. */
-  function icon(l, w) { return L.divIcon({ className: 'gc-ppin', html: pinSvg(impOf(w).c, catOf(l, w)), iconSize: [30, 40], iconAnchor: [15, 38] }); }
+  /** Map pin for a photo point: importance colour, category symbol, a green tick once checked. */
+  function icon(l, w) { return L.divIcon({ className: 'gc-ppin', html: pinSvg(impOf(w).c, catOf(l, w), !!w.chk), iconSize: [32, 40], iconAnchor: [15, 38] }); }
   /** Whether the layer's filter shows this point. */
   function shown(l, w) {
     if (!l.photoPts) return true;
     if (l.hideCats && l.hideCats[w.cat || 'gen']) return false;
+    if (l.hideChecked && w.chk) return false;
     return (w.imp | 0) >= (l.minImp | 0);
   }
   function label(l, w) { var c = catOf(l, w); return (c ? c.name + ' · ' : '') + impOf(w).n; }
+  /** When the photo was taken: the camera's own time (EXIF), else when it was pinned. */
+  function taken(w) { return w.taken || (w.photos && w.photos[0] && w.photos[0].t) || w.time; }
+  function me() { var s = GC.settings || {}; return (s.cloud && s.cloud.device) || s.lastName || 'This device'; }
+  /** Ticks a photo point as checked (who and when), or unticks it. */
+  function setChecked(l, w, on) {
+    if (on) w.chk = { t: Date.now(), by: me() }; else delete w.chk;
+    GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true);
+  }
+  function checkedText(w) { return w.chk ? 'Checked by ' + w.chk.by + ' · ' + GC.fmtTime(w.chk.t) : 'Not checked yet'; }
 
   // ---------- take a photo ----------
   /** Opens the camera straight away (iPad/iPhone; elsewhere a file picker). Must run inside a tap handler. */
@@ -94,7 +105,7 @@
       l.cats = cs;
       var n = l.waypoints.filter(function (w) { return w.cat === st.cat; }).length + 1;
       var name = el && el.querySelector('#cam-name').value.trim() || (c ? c.name : 'Photo') + ' ' + pad(n);
-      var w = { lat: p.lat, lon: p.lon, ele: p.ele, acc: p.acc, time: Date.now(), name: name, note: el ? el.querySelector('#cam-note').value.trim() : '', photos: [ref], cat: st.cat, imp: st.imp };
+      var w = { lat: p.lat, lon: p.lon, ele: p.ele, acc: p.acc, time: Date.now(), taken: ref.t || Date.now(), name: name, note: el ? el.querySelector('#cam-note').value.trim() : '', photos: [ref], cat: st.cat, imp: st.imp };
       l.waypoints.push(w);
       try { localStorage.setItem(LAST, st.cat); } catch (e) { /* private mode */ }
       if (!l.visible) l.visible = true;
@@ -149,7 +160,11 @@
     var d = document.createElement('div'); d.className = 'cam-card';
     var ro = l.locked, ph = w.photos && w.photos[0];
     d.innerHTML = (ph ? '<button class="cam-hero" aria-label="Open the photo"><img alt=""></button>' : '') + '<label>Category<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cats(l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
-      '<label>Importance<select data-k="imp"' + (ro ? ' disabled' : '') + ' style="--ic:' + impOf(w).c + '">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select></label>';
+      '<label>Importance<select data-k="imp"' + (ro ? ' disabled' : '') + ' style="--ic:' + impOf(w).c + '">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select></label>' +
+      '<button class="cam-check' + (w.chk ? ' on' : '') + '"' + (ro ? ' disabled' : '') + '><i></i><span></span></button>';
+    var ck = d.querySelector('.cam-check'), paintCk = function () { ck.classList.toggle('on', !!w.chk); ck.querySelector('span').textContent = w.chk ? checkedText(w) : 'Tick when checked'; };
+    paintCk();
+    ck.onclick = function () { setChecked(l, w, !w.chk); paintCk(); if (onChange) onChange(); };
     if (ph) {
       var hero = d.querySelector('.cam-hero');
       GC.photos.url(ph.id).then(function (u) { if (u) hero.firstChild.src = u; });
@@ -168,7 +183,9 @@
   function optionsHtml(l) {
     var count = {}; (l.waypoints || []).forEach(function (w) { var k = w.cat || 'gen'; count[k] = (count[k] || 0) + 1; });
     var hc = l.hideCats || {};
-    return '<div class="cam-opts"><div class="cam-lbl">Show importance</div><select id="cam-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === (l.minImp | 0) ? ' selected' : '') + '>' + (i === 0 ? 'All' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
+    var nChk = (l.waypoints || []).filter(function (w) { return w.chk; }).length;
+    return '<div class="cam-opts"><button class="btn primary" id="cam-reg">Open the photo register (' + (l.waypoints || []).length + ')</button>' +
+      '<label class="opt"><input type="checkbox" id="cam-hidechk"' + (l.hideChecked ? ' checked' : '') + '> Hide checked photos (' + nChk + ')</label><div class="cam-lbl">Show importance</div><select id="cam-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === (l.minImp | 0) ? ' selected' : '') + '>' + (i === 0 ? 'All' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="cam-lbl">Categories <small>(untick to hide; rename by typing)</small></div><div id="cam-catlist">' +
       cats(l).map(function (c, i) {
         return '<div class="cam-crow"><input type="checkbox" data-show="' + i + '"' + (hc[c.id] ? '' : ' checked') + '><span class="cam-sym">' + pinSvg(IMP[0].c, c) + '</span>' +
@@ -180,6 +197,8 @@
   function bindOptions(el, l, reopen) {
     var q = function (s) { return el.querySelector(s); }, apply = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(true); };
     if (!l.cats) l.cats = CATS.map(function (c) { return Object.assign({}, c); });
+    q('#cam-reg').onclick = function () { GC.closeModal(); if (GC.register) GC.register.open(); };
+    q('#cam-hidechk').onchange = function () { if (q('#cam-hidechk').checked) l.hideChecked = true; else delete l.hideChecked; apply(); };
     q('#cam-min').onchange = function () { l.minImp = +q('#cam-min').value; if (!l.minImp) delete l.minImp; apply(); };
     [].forEach.call(el.querySelectorAll('[data-show]'), function (b) {
       b.onchange = function () { var c = l.cats[+b.getAttribute('data-show')]; l.hideCats = Object.assign({}, l.hideCats); if (b.checked) delete l.hideCats[c.id]; else l.hideCats[c.id] = 1; if (!Object.keys(l.hideCats).length) delete l.hideCats; apply(); };
@@ -201,5 +220,5 @@
   $('btn-camera').onclick = function () { if (GC.ui) GC.ui.close(); capture(); };
 
   GC.camera = { capture: capture, layer: layer, icon: icon, shown: shown, isPhotoPt: isPhotoPt, label: label, cardBody: cardBody, catOf: catOf, impOf: impOf,
-    optionsHtml: optionsHtml, bindOptions: bindOptions, IMP: IMP, CATS: CATS };
+    optionsHtml: optionsHtml, bindOptions: bindOptions, IMP: IMP, CATS: CATS, cats: cats, taken: taken, setChecked: setChecked, checkedText: checkedText, pinSvg: pinSvg };
 })(window);

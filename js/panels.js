@@ -396,7 +396,7 @@
       body: rowsHtml([['Distance', GC.fmtDist(t.distance || 0)], ['Points', String(t.points.length)], ['Started', GC.fmtTime(t.points[0] ? t.points[0][2] : Date.now())], ['Duration', Math.floor(dur / 3600) + ' h ' + Math.round(dur / 60) % 60 + ' min']]) });
   };
   GC.inspectWaypoint = function (l, w) {
-    var rows = [['Time', GC.fmtTime(w.time)]];
+    var isCam = GC.camera && GC.camera.isPhotoPt(l, w), rows = [isCam ? ['Taken', GC.fmtTime(GC.camera.taken(w))] : ['Time', GC.fmtTime(w.time)]];
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
     var ll = L.latLng(w.lat, w.lon), cam = GC.camera && GC.camera.isPhotoPt(l, w), body = rowsHtml(rows);

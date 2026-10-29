@@ -114,6 +114,7 @@
     tool('i-plus', 'Add', 'Import a file (KML/KMZ, GeoPDF, shapefile, DXF, GeoTIFF, GPX, GeoJSON, PDF or photo plans), open My maps or Online maps, or start a new drawing layer.') +
     tool('i-layers', 'Map', 'Choose the background, turn on lot boundaries, darken the imagery, and save areas for offline use.') +
     tool('i-camera', 'Camera', 'Opens the camera; the photo is pinned at your GPS position. Pick a category (Defect, Safety… or your own) and an importance: pins are coloured Info → Critical. Filter them in the Photo points layer’s ⋯ options.') +
+    tool('i-photos', 'Photos', 'The photo register: every photo in one table with its category, importance, when it was taken and a ✓ to tick once it has been checked (who and when is recorded). Sort, filter (To check / Checked), edit in place, export CSV for Excel.') +
     tool('i-ruler', 'Measure', 'Lengths, areas and bearings; freehand traces a winding line. Points snap to lot corners and drawing corners.') +
     tool('i-search', 'Search', 'Your own data first (“PHW-AV-002”, “thrust block 13”) with a Go button, then places, coordinates (decimal, DMS or MGA) and lots (“3RP123456”).') +
     tool('i-gps', 'GPS', 'Your position, track recording and waypoints with photos.') +
