@@ -37,6 +37,8 @@
     <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3.5 16.5 16.5 3.5l4 4-13 13z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 13l1.8 1.8M9.5 10.5l2.6 2.6M12 8l1.8 1.8M14.5 5.5l2.6 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l1.6-2.4h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13.2" r="3.4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
     <symbol id="i-offline" viewBox="0 0 24 24"><path d="M9 4.5 3.5 6.5v13L9 17.5l6 2 5.5-2v-6.5M9 4.5v13M15 13v6.5M9 4.5l3 1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 3v6.5m0 0-2.6-2.6M18 9.5l2.6-2.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2.9-1.2 1.8v.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="17" r="1.1" fill="currentColor"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.6 2.5 3.8 5.5 3.8 9s-1.2 6.5-3.8 9c-2.6-2.5-3.8-5.5-3.8-9S9.4 5.5 12 3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
     <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.6 9.1 4.7 4.7 0 0 0 7 18.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
     <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM4 4l16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -83,30 +85,47 @@
     <button id="mode-draw"><svg><use xlink:href="#i-ballpoint"/></svg><span>Draw</span></button>
   </div>
   <div class="spacer"></div>
-  <label class="basemap" title="Basemap"><svg><use xlink:href="#i-layers"/></svg><select id="basemap" aria-label="Basemap"></select></label>
-  <button class="ib" id="btn-import" title="Import GIS files"><svg><use xlink:href="#i-import"/></svg></button>
-  <button class="ib" id="btn-search" title="Search"><svg><use xlink:href="#i-search"/></svg></button>
-  <button class="ib" id="btn-measure" title="Measure distance and area" aria-label="Measure"><svg><use xlink:href="#i-ruler"/></svg></button>
-  <button class="ib" id="btn-offline" title="Offline maps" aria-label="Offline maps"><svg><use xlink:href="#i-offline"/></svg></button>
-  <button class="ib" id="btn-gps" title="GPS"><svg><use xlink:href="#i-gps"/></svg></button>
-  <button class="ib" id="btn-export" title="Export"><svg><use xlink:href="#i-export"/></svg></button>
+  <button class="tb" id="btn-add" title="Add files and maps" aria-haspopup="true"><svg><use xlink:href="#i-plus"/></svg><span>Add</span></button>
+  <button class="tb" id="btn-map" title="Background map, lot boundaries and offline maps" aria-haspopup="true"><svg><use xlink:href="#i-layers"/></svg><span>Map</span></button>
+  <button class="tb" id="btn-measure" title="Measure distance and area"><svg><use xlink:href="#i-ruler"/></svg><span>Measure</span></button>
+  <button class="tb" id="btn-search" title="Search places, coordinates and lots"><svg><use xlink:href="#i-search"/></svg><span>Search</span></button>
+  <button class="tb" id="btn-gps" title="GPS position, tracks and waypoints"><svg><use xlink:href="#i-gps"/></svg><span>GPS</span></button>
+  <button class="tb" id="btn-export" title="Export and share"><svg><use xlink:href="#i-export"/></svg><span>Share</span></button>
   <span class="sep"></span>
-  <button class="ib" id="btn-undo" title="Undo" disabled><svg><use xlink:href="#i-undo"/></svg></button>
-  <button class="ib" id="btn-redo" title="Redo" disabled><svg><use xlink:href="#i-redo"/></svg></button>
+  <button class="ib" id="btn-undo" title="Undo" aria-label="Undo" disabled><svg><use xlink:href="#i-undo"/></svg></button>
+  <button class="ib" id="btn-redo" title="Redo" aria-label="Redo" disabled><svg><use xlink:href="#i-redo"/></svg></button>
   <button class="ib cloud-btn off" id="btn-cloud" title="Team and cloud" aria-label="Team and cloud"><svg><use xlink:href="#i-cloud"/></svg><i class="cdot"></i></button>
-  <button class="ib" id="btn-settings" title="Settings"><svg><use xlink:href="#i-gear"/></svg></button>
+  <button class="ib" id="btn-help" title="Help" aria-label="Help"><svg><use xlink:href="#i-help"/></svg></button>
+  <button class="ib" id="btn-settings" title="Settings" aria-label="Settings"><svg><use xlink:href="#i-gear"/></svg></button>
   <input type="file" id="file-input" multiple hidden>
   <input type="file" id="restore-input" accept=".json,.geocanvas,application/json" hidden>
 </header>
 
+<div id="add-menu" class="panel pop menu" hidden role="menu">
+  <button class="menu-row" id="btn-import" role="menuitem"><svg><use xlink:href="#i-import"/></svg><span><b>Import a file</b><small>KML/KMZ, GeoPDF, shapefile, DXF, GeoTIFF, GPX, GeoJSON, PDF or photo plans</small></span></button>
+  <button class="menu-row" id="am-mymaps" role="menuitem"><svg><use xlink:href="#i-folder"/></svg><span><b>My maps</b><small>The team’s topo sheets, plans and saved maps</small></span></button>
+  <button class="menu-row" id="am-online" role="menuitem"><svg><use xlink:href="#i-globe"/></svg><span><b>Online maps</b><small>Geology, topographic and tenement maps from Geoscience Australia and Queensland</small></span></button>
+  <button class="menu-row" id="am-layer" role="menuitem"><svg><use xlink:href="#i-ballpoint"/></svg><span><b>New drawing layer</b><small>A separate layer for Pencil notes, shapes and markers</small></span></button>
+</div>
+<div id="map-panel" class="panel pop" hidden>
+  <div class="pop-title">Map <button class="ib" id="mp-close" title="Close" aria-label="Close">&times;</button></div>
+  <div class="pop-title small">Background</div>
+  <div class="bm-grid" id="bm-grid"></div>
+  <select id="basemap" aria-label="Background map" hidden></select>
+  <div class="pop-title small">Show on top</div>
+  <label class="sw-row"><span><b>Lot boundaries</b><small>QLD cadastre · tap a lot for its details</small></span><input type="checkbox" id="ref-cad" class="toggle"></label>
+  <label class="sw-row"><span><b>Darken the imagery</b><small>Helps map lines and drawings stand out</small></span><input type="checkbox" id="mp-dim" class="toggle"></label>
+  <div class="pop-title small">No signal?</div>
+  <button class="sw-row mp-off" id="btn-offline"><span><b>Offline maps</b><small id="mp-off-status">Save areas of imagery to use without signal</small></span><svg><use xlink:href="#i-offline"/></svg></button>
+</div>
+
 <aside id="sidebar" class="panel">
   <div class="tabs"><button data-tab="layers" class="on">Layers</button><button data-tab="project">Project</button></div>
   <div id="tab-layers" class="tab">
-    <div class="tab-head"><span id="layer-count"></span><button class="link" id="btn-add-layer"><svg><use xlink:href="#i-plus"/></svg>Annotation layer</button></div>
-    <label class="opt ref-row"><input type="checkbox" id="ref-cad"> Lot boundaries (QLD cadastre)</label>
+    <div class="tab-head"><span id="layer-count"></span><button class="link" id="btn-add-layer"><svg><use xlink:href="#i-plus"/></svg>New drawing layer</button></div>
     <button class="btn lib-open" id="btn-mymaps"><svg><use xlink:href="#i-folder"/></svg><span>My maps <small>topo sheets, plans, online maps</small></span></button>
     <ul id="layer-list"></ul>
-    <p class="hint">Drag ⠿ to reorder. ▸ opens folders, the eye shows or hides. Tap a placemark to fly to it and see its details; double-tap a layer or folder to zoom to it.</p>
+    <p class="hint lhint">⋯ layer options · ⠿ drag to reorder · double-tap to zoom · <a href="#" id="layers-help">More tips</a></p>
   </div>
   <div id="tab-project" class="tab" hidden>
     <label class="field">Project name<input id="proj-name" type="text"></label>
@@ -233,6 +252,7 @@
 <script src="js/library.js"></script>
 <script src="js/mymaps.js"></script>
 <script src="js/offline.js"></script>
+<script src="js/ui.js"></script>
 <script src="js/cloud.js"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.1' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.2' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -746,7 +746,7 @@
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
   });
   $('btn-add-layer').onclick = function () {
-    GC.prompt('New annotation layer', 'Layer ' + (GC.drawingLayers().length + 1), 'Name', 'Create').then(function (name) {
+    GC.prompt('New drawing layer', 'Layer ' + (GC.drawingLayers().length + 1), 'Name', 'Create').then(function (name) {
       if (!name) return;
       var l = GC.newDrawingLayer(name); GC.insertLayer(l, true); GC.project.activeLayer = l.id; GC.refreshLayers(); GC.markDirty(l.id);
     });

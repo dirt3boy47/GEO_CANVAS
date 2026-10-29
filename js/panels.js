@@ -847,7 +847,7 @@
       '<div class="row-btns" style="margin:0"><button class="btn" id="st-offline">Offline maps…</button></div>' +
       '<div class="pop-title small">Storage</div><p class="hint" id="st-store" style="margin:0">Checking…</p>' +
       '<div class="pop-title small">Version</div><p class="hint" style="margin:0">GeoCanvas ' + GC.VERSION + '</p>' +
-      '<div class="pop-title small">Tips</div><p class="hint" style="margin:0">Add GeoCanvas to your Home Screen (Share › Add to Home Screen) so it opens full screen and Safari keeps its data. Back up projects regularly — clearing Safari website data deletes them.</p>' +
+      '<div class="pop-title small">Help</div><p class="hint" style="margin:0 0 6px">Add GeoCanvas to your Home Screen (Share › Add to Home Screen) so it opens full screen and iOS keeps its data.</p><div class="row-btns" style="margin:0"><button class="btn" id="st-help">Help: quick start, offline &amp; online, tools</button></div>' +
       '<div class="actions"><button class="btn primary" data-a="ok">Done</button></div>';
     GC.modal(html, function (el, close) {
       var q = function (x) { return el.querySelector(x); };
@@ -858,6 +858,7 @@
       q('[data-a=ok]').onclick = close;
       if (GC.cloud) GC.cloud.renderSettings(q('#st-cloud'));
       q('#st-offline').onclick = function () { close(); GC.offline.open(); };
+      q('#st-help').onclick = function () { close(); GC.help.open(); };
       var st = q('#st-store');
       var mem = Store.isMemoryOnly() ? 'Private browsing: projects are NOT kept after closing Safari. ' : '';
       if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(function (e) { st.textContent = mem + 'Using ' + (e.usage / 1048576).toFixed(1) + ' MB of about ' + Math.round(e.quota / 1048576) + ' MB available to GeoCanvas.' + (Store.persistent ? ' Storage is marked persistent.' : ''); }, function () { st.textContent = mem; });
@@ -906,6 +907,7 @@
     }
   }
   function welcome() {
+    if (GC.help) { GC.help.welcome(); return; }
     GC.modal('<h2>Welcome to GeoCanvas</h2><p class="sub">Draw on the map of Toowoomba with Apple Pencil — your notes stay pinned to the ground.</p>' +
       '<p><b>Navigate</b> mode: drag and pinch to move the map. Tap features to inspect them.</p>' +
       '<p><b>Draw</b> mode: the Pencil writes; your fingers still move and zoom the map. Pick pens, highlighter, shapes, text and markers in the bottom toolbar. Tap the active tool again for thickness and opacity.</p>' +
