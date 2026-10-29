@@ -119,7 +119,7 @@
     tool('i-search', 'Search', 'Your own data first (“PHW-AV-002”, “thrust block 13”) with a Go button, then places, coordinates (decimal, DMS or MGA) and lots (“3RP123456”).') +
     tool('i-gps', 'GPS', 'Your position, track recording and waypoints with photos.') +
     tool('i-export', 'Share', 'Export KML/KMZ, GeoJSON, GPX, GeoTIFF, PNG or a print view, or back up the project.') +
-    tool('i-cloud', 'Team & cloud', 'Green dot: saved. Blue: saving. Orange: offline with changes waiting. Red: a problem (tap for details). Join or create a team here.') +
+    tool('i-cloud', 'Account & teams', 'Sign in once on each device (iPad, iPhone, laptop): your teams and private jobs follow you. Join or create teams, switch between them, add a device with a 6-digit code. Owners and admins manage members. Green dot: saved. Blue: saving. Orange: offline with changes waiting. Red: a problem (tap for details).') +
     '</div>';
   var START = '<ol class="hp-steps hp-start">' +
     '<li><b>Move around and look</b><small>In <b>Navigate</b>, drag and pinch. Tap a pipe, valve or lot for its card: <b>Go</b> guides you there from your GPS position, plus Measure, Photo, Note and Copy coordinates.</small></li>' +

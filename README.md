@@ -23,25 +23,33 @@ be **https://**, because Safari only allows GPS on secure websites.
 
 To update later: upload a new ZIP to the same Cloudflare project ("Create new deployment").
 
-## Team & cloud (every project on every device)
+## Accounts and teams (every device, every team)
 
-- **Create a team:** tap ☁ in the top bar › **Create a team**, type your name and a team name (e.g. a job or crew).
-  GeoCanvas makes the team's join code. There can be any number of teams; each has its own projects.
-- **Join a team:** ☁ › **Join a team**, type your name and the team's **join code** (it looks like
-  `ABCD-EFGH-JK23`; capitals, spaces and dashes don't matter). Anyone in a team finds its code under ☁ › Team join
-  code (Copy / Share). Never put a join code in this public repository.
-- **Switch team:** ☁ › Leave / switch team, then join or create another. Projects of the old team stay on the iPad
-  (labelled in Projects) but are never uploaded into the new team.
-- **Every project is a team project.** Projects › one list of all team projects, on this iPad or not — tap one to
-  open it. A new iPad that joins with nothing on it opens the team's latest project.
+- **Sign in on each device.** Tap ☁ in the top bar › **Create account** (email, name, password of 8+ characters) or
+  **Sign in**. On another device, sign in with the same email and password, or tap ☁ › **Add a device** on a device
+  that is already signed in and type its 6-digit code on the new one (☁ › **Use a code**; works once, for 10 minutes).
+  Your teams and your private jobs are then on all your devices. ☁ lists your devices; any of them can be signed out
+  from another. Passwords are stored as salted PBKDF2 hashes, sessions as hashes of their tokens.
+- **Teams belong to people.** ☁ › **Create a team** (you are its owner; the join code is shown to share) or **Join a
+  team** with its code (capitals, spaces and dashes don't matter). You can be in several teams: ☁ › **Switch to**.
+  Never put a join code in this public repository.
+- **Roles.** The owner makes others **admins** (or owners) in ☁ › the team › Manage. Owners and admins can remove
+  members, rename the team, make a new join code and **reset a forgotten password** (the person gets a temporary
+  password from them and is signed out everywhere until they use it; they change it under ☁ › Change password).
+  A team always keeps an owner. Members see who is in the team.
+- **Private jobs follow you.** Signed in, a private job saves to your own space in the cloud: on all your devices,
+  never seen by the team. Jobs on your other devices are listed in Projects › My jobs (“on your other device”, tap to
+  open). Send to team works from any of them.
+- **Devices from before accounts** (team join code only) keep working. ☁ asks to sign in: signing in or creating an
+  account moves the device onto that account, already in its team.
 - **Saving is automatic:** changes go up about 2 s after you stop; other devices check every 15 s. The ☁ button
   shows the state (green dot = saved, blue = saving, orange = offline with changes waiting, red = problem) and the
   title line says “☁ In cloud”. Each iPad keeps a copy and works offline; it catches up when back online.
 - **Two people on one project:** strokes, tracks, waypoints and photos from both are kept. If the same item or the
   same imported layer's settings change on two devices, the last device to save wins.
-- **Removing access:** ☁ › New join code… The old code stops working; everyone rejoins with the new one (their
-  projects are safe). 20 wrong codes from one connection lock it out for 10 minutes; one connection can create at
-  most 10 teams per 10 minutes.
+- **Removing access:** remove the person in ☁ › the team › Manage (their devices lose access straight away). A new
+  join code stops the old one being used to join; people already in the team stay in it. 20 wrong codes (or 10 wrong
+  sign-ins) from one connection lock it out for 10 minutes; one connection can create at most 10 teams per 10 minutes.
 - **Deleting:** “Only from this iPad” (stays in the team cloud) or “For everyone”.
 
 How it works: the site is a Cloudflare Worker (`worker/index.js`, config in `wrangler.jsonc`) that serves the app

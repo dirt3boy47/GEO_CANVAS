@@ -3,6 +3,24 @@
    Storage is D1 (see migrations/). There can be any number of teams; each has a name, a join code and its own
    projects. Every request (except creating a team) carries the team's join code in X-GC-Key.
 
+   Accounts (header X-GC-Session: a session token; X-GC-Team: a team id, or "me" for the person's private space):
+   POST   /api/auth/signup                  {email, name, password, device} → {token, user, teams}
+   POST   /api/auth/login                   {email, password, device} → {token, user, teams}
+   POST   /api/auth/pair                    {code, device} → sign in with a 6-digit code from a signed-in device
+   POST   /api/auth/logout                  sign this device out
+   GET    /api/me                           {user, teams [{id, name, role}], devices}
+   POST   /api/me                           {name} rename yourself; POST /api/me/password {old, new}
+   POST   /api/me/pair                      → {code} for adding a device (valid 10 minutes)
+   DELETE /api/me/devices/:id               sign one of your devices out
+   POST   /api/teams                        {name} → a new team (you are its owner) and its join code
+   POST   /api/teams/join                   {code} → join a team
+   GET    /api/teams/:id                    {team, role, code, members}
+   POST   /api/teams/:id                    {name} rename (owner/admin); POST /api/teams/:id/code new join code (owner/admin)
+   POST   /api/teams/:id/members/:uid       {role} (owner: make admin/member/owner); DELETE removes (owner/admin) or leaves (yourself)
+   POST   /api/teams/:id/members/:uid/reset → a temporary password for a member who forgot theirs (owner/admin)
+   Project routes below work for any project in one of your teams or your own space.
+
+   Devices set up before accounts send the team's join code in X-GC-Key instead, as before:
    POST   /api/teams                        {name} → a new team and its join code (no code needed)
    GET    /api/ping                         check the join code → {team: {id, name}}
    POST   /api/team                         {name} → rename the team
@@ -99,9 +117,174 @@ async function owner(env, team, id) {
   return !r ? 'none' : r.team_id === team.id ? 'mine' : 'other';
 }
 
+// ---------- accounts ----------
+const PBKDF2_ITER = 100000, MAX_LOGIN_FAILS = 10;
+function hexOf(buf) { return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join(''); }
+function randHex(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return hexOf(a); }
+async function pwHash(password, salt) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  return hexOf(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: PBKDF2_ITER }, key, 256));
+}
+function same(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+function normEmail(e) { return String(e || '').trim().toLowerCase(); }
+function publicUser(u) { return { id: u.id, email: u.email, name: u.name }; }
+async function newSession(env, uid, device) {
+  const token = randHex(32), id = 's' + randHex(8), now = Date.now();
+  await env.DB.prepare('INSERT INTO sessions (id, token_hash, user_id, device, created, seen) VALUES (?, ?, ?, ?, ?, ?)').bind(id, await sha256('gc-session:' + token), uid, String(device || '').slice(0, 80), now, now).run();
+  return token;
+}
+/** The signed-in person ({user, sid}) for a request with X-GC-Session; null if the session is unknown (signed out). */
+async function userOf(request, env, ctx) {
+  const token = request.headers.get('X-GC-Session') || '';
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  const s = await env.DB.prepare('SELECT s.id AS sid, s.seen, u.id, u.email, u.name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?').bind(await sha256('gc-session:' + token)).first();
+  if (!s) return null;
+  if (Date.now() - s.seen > 3600000) { const q = env.DB.prepare('UPDATE sessions SET seen = ? WHERE id = ?').bind(Date.now(), s.sid).run(); if (ctx) ctx.waitUntil(q); else await q; }
+  return { user: { id: s.id, email: s.email, name: s.name }, sid: s.sid };
+}
+async function roleIn(env, uid, tid) { const r = await env.DB.prepare('SELECT role FROM members WHERE team_id = ? AND user_id = ?').bind(tid, uid).first(); return r ? r.role : null; }
+async function teamsOf(env, uid) {
+  return (await env.DB.prepare('SELECT t.id, t.name, m.role FROM members m JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY m.joined').bind(uid).all()).results;
+}
+async function devicesOf(env, uid, sid) {
+  return (await env.DB.prepare('SELECT id, device, created, seen FROM sessions WHERE user_id = ? ORDER BY seen DESC').bind(uid).all()).results.map((d) => Object.assign(d, { current: d.id === sid }));
+}
+function pairCode() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 1000000).padStart(6, '0'); }
+function tempPassword() { const a = new Uint32Array(8); crypto.getRandomValues(a); return Array.from(a, (x) => ALPHA[x % ALPHA.length]).join('').replace(/^(.{4})/, '$1-'); }
+async function limited(env, request, kind, max) { const ip = kind + ':' + ipOf(request), win = Math.floor(Date.now() / WINDOW); return { over: (await count(env, ip, win)) >= max, fail: () => bump(env, ip, win) }; }
+
+/** Sign-up, sign-in and pairing: no session needed. */
+async function authApi(request, env, parts, m) {
+  const body = await request.json().catch(() => ({}));
+  const lim = await limited(env, request, 'auth', MAX_LOGIN_FAILS);
+  if (lim.over) return json({ error: 'Too many tries from this connection. Wait 10 minutes and try again.' }, 429);
+  const device = String(body.device || '').slice(0, 80);
+  if (parts[2] === 'signup') {
+    const email = normEmail(body.email), name = String(body.name || '').trim().slice(0, 80), pw = String(body.password || '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Type a valid email address.' }, 400);
+    if (!name) return json({ error: 'Type your name, so others can see who changed what.' }, 400);
+    if (pw.length < 8) return json({ error: 'Use a password of at least 8 characters.' }, 400);
+    if (await env.DB.prepare('SELECT 1 AS x FROM users WHERE email = ?').bind(email).first()) return json({ error: 'There is already an account with that email. Sign in instead.' }, 409);
+    const id = 'u' + randHex(8), salt = randHex(16);
+    await env.DB.prepare('INSERT INTO users (id, email, name, pwhash, salt, created) VALUES (?, ?, ?, ?, ?, ?)').bind(id, email, name, await pwHash(pw, salt), salt, Date.now()).run();
+    await lim.fail(); // sign-ups count towards the limit too
+    return json({ token: await newSession(env, id, device), user: { id: id, email: email, name: name }, teams: [] });
+  }
+  if (parts[2] === 'login') {
+    const u = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(normEmail(body.email)).first();
+    if (!u || !same(await pwHash(String(body.password || ''), u.salt), u.pwhash)) { await lim.fail(); return json({ error: 'That email and password don’t match. Check them, or ask a team owner to reset your password.' }, 401); }
+    return json({ token: await newSession(env, u.id, device), user: publicUser(u), teams: await teamsOf(env, u.id) });
+  }
+  if (parts[2] === 'pair') {
+    const code = String(body.code || '').replace(/\D/g, '');
+    const row = code.length === 6 ? await env.DB.prepare('SELECT user_id FROM pairing WHERE code_hash = ? AND expires > ?').bind(await sha256('gc-pair:' + code), Date.now()).first() : null;
+    if (!row) { await lim.fail(); return json({ error: 'That code is not right or has expired. Make a new one on your other device.' }, 401); }
+    await env.DB.prepare('DELETE FROM pairing WHERE code_hash = ?').bind(await sha256('gc-pair:' + code)).run();
+    const u = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(row.user_id).first();
+    return json({ token: await newSession(env, u.id, device), user: publicUser(u), teams: await teamsOf(env, u.id) });
+  }
+  return json({ error: 'Not found.' }, 404);
+}
+
+/** Your account and your teams (signed in). Returns null when the route is not one of these. */
+async function accountApi(request, env, parts, m, me) {
+  const uid = me.user.id;
+  const body = m === 'POST' ? await request.clone().json().catch(() => ({})) : {};
+  if (parts[1] === 'auth' && parts[2] === 'logout' && m === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(me.sid).run(); return json({ ok: true }); }
+  if (parts[1] === 'me') {
+    if (parts.length === 2 && m === 'GET') return json({ user: me.user, teams: await teamsOf(env, uid), devices: await devicesOf(env, uid, me.sid) });
+    if (parts.length === 2 && m === 'POST') { const n = String(body.name || '').trim().slice(0, 80); if (!n) return json({ error: 'Type a name.' }, 400); await env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(n, uid).run(); return json({ user: Object.assign({}, me.user, { name: n }) }); }
+    if (parts[2] === 'password' && m === 'POST') {
+      const u = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(uid).first(), nw = String(body.new || '');
+      if (!same(await pwHash(String(body.old || ''), u.salt), u.pwhash)) return json({ error: 'Your current password is not right.' }, 403);
+      if (nw.length < 8) return json({ error: 'Use a password of at least 8 characters.' }, 400);
+      const salt = randHex(16);
+      await env.DB.batch([env.DB.prepare('UPDATE users SET pwhash = ?, salt = ? WHERE id = ?').bind(await pwHash(nw, salt), salt, uid), env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(uid, me.sid)]);
+      return json({ ok: true }); // other devices are signed out
+    }
+    if (parts[2] === 'pair' && m === 'POST') {
+      const code = pairCode();
+      await env.DB.batch([env.DB.prepare('DELETE FROM pairing WHERE expires < ? OR user_id = ?').bind(Date.now(), uid), env.DB.prepare('INSERT INTO pairing (code_hash, user_id, expires) VALUES (?, ?, ?)').bind(await sha256('gc-pair:' + code), uid, Date.now() + 10 * 60000)]);
+      return json({ code: code, expires: Date.now() + 10 * 60000 });
+    }
+    if (parts[2] === 'devices' && parts[3] && m === 'DELETE') { await env.DB.prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?').bind(parts[3], uid).run(); return json({ ok: true }); }
+    return json({ error: 'Not found.' }, 404);
+  }
+  if (parts[1] !== 'teams') return null;
+  if (parts.length === 2 && m === 'POST') { // a new team: you are its owner
+    const lim = await limited(env, request, 'new', MAX_NEW_TEAMS);
+    if (lim.over) return json({ error: 'Too many new teams from this connection. Wait 10 minutes and try again.' }, 429);
+    const name = String(body.name || '').trim().slice(0, 80) || 'My team', code = newCode(), id = 'tm' + crypto.randomUUID().replace(/-/g, '').slice(0, 16), now = Date.now();
+    await env.DB.batch([env.DB.prepare('INSERT INTO teams (id, name, codehash, created) VALUES (?, ?, ?, ?)').bind(id, name, await codeHash(code), now), env.DB.prepare('INSERT INTO members (team_id, user_id, role, joined) VALUES (?, ?, ?, ?)').bind(id, uid, 'owner', now)]);
+    await lim.fail();
+    return json({ code: code, team: { id: id, name: name, role: 'owner' } });
+  }
+  if (parts[2] === 'join' && parts.length === 3 && m === 'POST') {
+    const lim = await limited(env, request, '', MAX_FAILS);
+    if (lim.over) return json({ error: 'Too many wrong join codes from this connection. Wait 10 minutes and try again.' }, 429);
+    const t = await env.DB.prepare('SELECT id, name FROM teams WHERE codehash = ?').bind(await codeHash(body.code)).first();
+    if (!t) { await lim.fail(); return json({ error: 'That join code is not right. Check it with someone in your team.' }, 401); }
+    const had = await roleIn(env, uid, t.id);
+    if (!had) await env.DB.prepare('INSERT INTO members (team_id, user_id, role, joined) VALUES (?, ?, ?, ?)').bind(t.id, uid, 'member', Date.now()).run();
+    return json({ team: { id: t.id, name: t.name, role: had || 'member' } });
+  }
+  const tid = parts[2], role = tid ? await roleIn(env, uid, tid) : null;
+  if (!role) return json({ error: 'You are not in that team.' }, 403);
+  const boss = role === 'owner' || role === 'admin';
+  const t = await env.DB.prepare('SELECT id, name FROM teams WHERE id = ?').bind(tid).first();
+  if (parts.length === 3 && m === 'GET') {
+    const members = (await env.DB.prepare('SELECT u.id, u.name, u.email, m.role, m.joined FROM members m JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY m.joined').bind(tid).all()).results;
+    return json({ team: Object.assign({}, t, { role: role }), role: role, members: members });
+  }
+  if (parts.length === 3 && m === 'POST') {
+    if (!boss) return json({ error: 'Only the team’s owner or an admin can rename it.' }, 403);
+    const name = String(body.name || '').trim().slice(0, 80); if (!name) return json({ error: 'Give the team a name.' }, 400);
+    await env.DB.prepare('UPDATE teams SET name = ? WHERE id = ?').bind(name, tid).run();
+    return json({ team: { id: tid, name: name, role: role } });
+  }
+  if (parts[3] === 'code' && m === 'POST') {
+    if (!boss) return json({ error: 'Only the team’s owner or an admin can change the join code.' }, 403);
+    const code = newCode(); await env.DB.prepare('UPDATE teams SET codehash = ? WHERE id = ?').bind(await codeHash(code), tid).run();
+    return json({ code: code });
+  }
+  if (parts[3] === 'code' && m === 'GET') { // the join code itself is not stored: a new one is made only on request
+    return json({ error: 'The join code is shown once when it is made. Make a new one to share it again.' }, 404);
+  }
+  if (parts[3] === 'members' && parts[4]) {
+    const who = parts[4], theirs = await roleIn(env, who, tid);
+    if (!theirs) return json({ error: 'That person is not in the team.' }, 404);
+    const owners = (await env.DB.prepare("SELECT COUNT(*) AS n FROM members WHERE team_id = ? AND role = 'owner'").bind(tid).first()).n;
+    if (parts.length === 5 && m === 'DELETE') {
+      if (who !== uid && !(role === 'owner' || (role === 'admin' && theirs === 'member'))) return json({ error: 'Admins can remove members; only an owner can remove an admin or owner.' }, 403);
+      if (theirs === 'owner' && owners < 2) return json({ error: 'A team needs an owner: make someone else owner first.' }, 400);
+      await env.DB.prepare('DELETE FROM members WHERE team_id = ? AND user_id = ?').bind(tid, who).run();
+      return json({ ok: true });
+    }
+    if (parts.length === 5 && m === 'POST') {
+      const nr = String(body.role || '');
+      if (role !== 'owner') return json({ error: 'Only an owner can change roles.' }, 403);
+      if (['owner', 'admin', 'member'].indexOf(nr) < 0) return json({ error: 'Bad role.' }, 400);
+      if (theirs === 'owner' && nr !== 'owner' && owners < 2) return json({ error: 'A team needs an owner: make someone else owner first.' }, 400);
+      await env.DB.prepare('UPDATE members SET role = ? WHERE team_id = ? AND user_id = ?').bind(nr, tid, who).run();
+      return json({ ok: true });
+    }
+    if (parts[5] === 'reset' && m === 'POST') {
+      if (!boss || who === uid) return json({ error: 'Only the team’s owner or an admin can reset someone else’s password.' }, 403);
+      if (theirs === 'owner' && role !== 'owner') return json({ error: 'Only an owner can reset an owner’s password.' }, 403);
+      const pw = tempPassword(), salt = randHex(16);
+      await env.DB.batch([env.DB.prepare('UPDATE users SET pwhash = ?, salt = ? WHERE id = ?').bind(await pwHash(pw, salt), salt, who), env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(who)]);
+      return json({ password: pw });
+    }
+  }
+  return json({ error: 'Not found.' }, 404);
+}
+
 async function api(request, env, url, ctx) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   const m = request.method;
+
+  if (parts[1] === 'auth' && parts[2] !== 'logout' && m === 'POST') return authApi(request, env, parts, m);
+  if (request.headers.get('X-GC-Session')) return sessionApi(request, env, url, ctx, parts, m);
 
   if (parts[1] === 'teams' && parts.length === 2 && m === 'POST') { // create a team: open to anyone, rate-limited
     const ip = 'new:' + ipOf(request), win = Math.floor(Date.now() / WINDOW);
@@ -143,7 +326,12 @@ async function api(request, env, url, ctx) {
   if (!id || !ID.test(id)) return json({ error: 'Bad project id.' }, 400);
   const own = await owner(env, team, id);
   if (own === 'other') return json({ error: 'This project belongs to another team.' }, 403);
+  return projectApi(request, env, ctx, parts, m, team, own);
+}
 
+/** One project's routes, for a team (or private space) that may use it; own: 'mine' (it is in that space) or 'none'. */
+async function projectApi(request, env, ctx, parts, m, team, own) {
+  const id = parts[2];
   if (parts.length === 3) {
     if (m === 'GET') {
       const row = own === 'mine' ? await current(env, id) : null;
@@ -242,4 +430,36 @@ async function putProject(request, env, id, team) {
   const size = (await env.DB.prepare('SELECT ' + SIZE_SQL + ' AS s FROM blobs WHERE pid = ?').bind(id).first()).s;
   const row = await env.DB.prepare('UPDATE projects SET size = ? WHERE id = ? RETURNING rev, modified').bind(size, id).first();
   return json({ rev: row.rev, modified: row.modified });
+}
+
+/** Requests from a signed-in device: account routes, then projects in one of the person's teams or their own space. */
+async function sessionApi(request, env, url, ctx, parts, m) {
+  const me = await userOf(request, env, ctx);
+  if (!me) return json({ error: 'You have been signed out on this device. Sign in again.', signedOut: true }, 401);
+  const acc = await accountApi(request, env, parts, m, me);
+  if (acc) return acc;
+  const want = request.headers.get('X-GC-Team') || 'me';
+  let space;
+  if (want === 'me') space = { id: 'u' + me.user.id, name: me.user.name, personal: true };
+  else {
+    const role = await roleIn(env, me.user.id, want);
+    if (!role) return json({ error: 'You are not in that team (any more).', notMember: true }, 403);
+    space = Object.assign({ role: role }, await env.DB.prepare('SELECT id, name FROM teams WHERE id = ?').bind(want).first());
+  }
+  if (parts[1] === 'ping' && m === 'GET') return json({ ok: true, team: space.personal ? null : space, user: me.user });
+  if (parts[1] !== 'projects') return json({ error: 'Not found.' }, 404);
+  if (parts.length === 2 && m === 'GET') {
+    const rows = (await env.DB.prepare('SELECT id, rev, name, modified, device, size, deleted FROM projects WHERE team_id = ? ORDER BY modified DESC').bind(space.id).all()).results;
+    return json({ team: space, projects: rows.map((r) => ({ id: r.id, rev: r.rev, name: r.name, modified: r.modified, device: r.device, size: r.size, deleted: !!r.deleted })) });
+  }
+  // an existing project is reached in whichever of your spaces it lives; a new one goes into the space asked for
+  const id = parts[2];
+  if (!id || !ID.test(id)) return json({ error: 'Bad project id.' }, 400);
+  const r = await env.DB.prepare('SELECT team_id FROM projects WHERE id = ?').bind(id).first();
+  if (r) {
+    const ok = r.team_id === 'u' + me.user.id || (r.team_id && r.team_id.charAt(0) !== 'u' && await roleIn(env, me.user.id, r.team_id));
+    if (!ok) return json({ error: 'This project belongs to another team.' }, 403);
+    space = { id: r.team_id };
+  }
+  return projectApi(request, env, ctx, parts, m, space, r ? 'mine' : 'none');
 }

@@ -91,16 +91,22 @@
 
   // ---------- settings, status ----------
   function cfg() { return GC.settings.cloud || {}; }
-  function on() { return !!cfg().key; }
+  /** Signed in with an account (a session); devices set up before accounts have only a team join code (key). */
+  function signedIn() { return !!cfg().session; }
+  function on() { return signedIn() || !!cfg().key; }
   function team() { return cfg().team || null; }
-  /** A project last synced with another team stays on this iPad but is never uploaded into this team. */
-  function otherTeam(p) { return !!(p && p.cloud && p.cloud.team && team() && p.cloud.team !== team().id); }
+  /** Where a project lives in the cloud: 'me' (your private space, for private jobs when signed in) or the team. */
+  function spaceOf(p) { return p && p.job && signedIn() ? 'me' : null; }
+  function spaceId(p) { return spaceOf(p) || (team() ? team().id : undefined); }
+  /** A project last synced with another team stays on this device but is never uploaded into this team. */
+  function otherTeam(p) { return !!(p && p.cloud && p.cloud.team && p.cloud.team !== 'me' && team() && p.cloud.team !== team().id); }
   var status = { state: 'off', at: 0, msg: '' };
   function hhmm(t) { return new Date(t).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
   function waiting() { return Object.keys(pendingSet()).length; }
   /** What the cloud button, the title line and the Team screen say right now. */
   function describe() {
-    if (!on()) return { cls: 'off', short: 'Not in a team', long: 'This iPad is not in a team yet, so projects are only on this iPad. Join your team to save them to the cloud.' };
+    if (!on()) return { cls: 'off', short: 'Not signed in', long: 'Not signed in: projects are only on this device. Tap ☁ to sign in, so your teams and private jobs are on all your devices.' };
+    if (signedIn() && !team() && !(GC.project && GC.project.job)) return { cls: 'idle', short: 'No team', long: 'Signed in as ' + (cfg().user ? cfg().user.name : '') + ', not in a team yet: tap ☁ to join or create one. Private jobs save to your account.' };
     var n = waiting();
     switch (status.state) {
       case 'syncing': return { cls: 'busy', short: 'Saving…', long: 'Saving to the cloud…' };
@@ -112,6 +118,12 @@
       case 'ok': return { cls: 'ok', short: 'Saved ' + hhmm(status.at), long: 'All changes saved to the cloud at ' + hhmm(status.at) + '.' };
       default: return { cls: 'idle', short: 'Ready', long: 'Connected to ' + (team() ? '“' + team().name + '”' : 'the team cloud') + '. Changes save by themselves.' };
     }
+  }
+  /** The server says this device's session has ended (signed out elsewhere, or the password was reset). */
+  var outWarned = false;
+  function signedOutHere() {
+    if (GC.account) GC.account.forget(); else { delete GC.settings.cloud; GC.saveSettings(); }
+    if (!outWarned) { outWarned = true; GC.toast('This device has been signed out. Tap ☁ to sign in again; everything on this device is kept.', 'warn', 9000); }
   }
   function setStatus(state, msg) {
     status.state = state; status.msg = msg || ''; if (state === 'ok') status.at = Date.now();
@@ -131,7 +143,9 @@
   // ---------- API ----------
   function api(method, path, body, opts) {
     opts = opts || {};
-    var o = { method: method, headers: { 'X-GC-Key': opts.key || cfg().key || '' } };
+    var c = cfg(), o = { method: method, headers: {} };
+    if (c.session && !opts.key) { o.headers['X-GC-Session'] = c.session; o.headers['X-GC-Team'] = opts.space || (c.team ? c.team.id : 'me'); }
+    else o.headers['X-GC-Key'] = opts.key || c.key || '';
     if (!opts.cacheable) o.cache = 'no-store';
     if (body != null) {
       if (typeof body === 'string') { o.body = body; o.headers['Content-Type'] = 'text/plain;charset=utf-8'; } else { o.body = JSON.stringify(body); o.headers['Content-Type'] = 'application/json'; }
@@ -146,7 +160,9 @@
       return r.json().then(function (j) {
         if (r.ok) return j;
         if (r.status === 409 && opts.conflict) return { conflict: j };
-        var e = new Error(j.error || ('Cloud error ' + r.status)); e.status = r.status; e.retry = !!j.retry; throw e;
+        var e = new Error(j.error || ('Cloud error ' + r.status)); e.status = r.status; e.retry = !!j.retry; e.signedOut = !!j.signedOut; e.notMember = !!j.notMember;
+        if (e.signedOut && c.session) signedOutHere();
+        throw e;
       });
     }, function (e) { clearTimeout(timer); var n = new Error('No connection to the cloud.'); n.offline = true; n.cause = e; throw n; });
   }
@@ -158,7 +174,8 @@
   function fileB64(d) { return abToB64(d instanceof ArrayBuffer ? d : new ArrayBuffer(0)); }
 
   var EMPTY = { layers: {}, order: [], meta: {}, files: {} };
-  var META = ['name', 'notes', 'basemap'];
+  var META = ['name', 'notes', 'basemap', 'job']; // job: a private job's info (and the fingerprint Send to team compares with)
+  function sameV(a, b) { return a === b || (a != null && b != null && typeof a === 'object' && JSON.stringify(a) === JSON.stringify(b)); }
   var fileCache = {}; // "pid:lid" → [{n, h}] (imported source files never change for a layer)
   var photoHash = {}; // "pid:photoId" → blob hash (a photo never changes once taken)
   function photoRefs(layers) { return GC.photos ? GC.photos.refsIn(layers.filter(Boolean)) : {}; }
@@ -253,7 +270,7 @@
     });
     if (abort) return { abort: true };
     var meta = {};
-    META.forEach(function (f) { var lv = p[f] == null ? '' : p[f]; meta[f] = (man && B.meta[f] === lv && R.meta[f] != null) ? R.meta[f] : lv; });
+    META.forEach(function (f) { var lv = p[f] == null ? '' : p[f]; meta[f] = (man && sameV(B.meta[f], lv) && R.meta[f] != null) ? R.meta[f] : lv; });
     var lorder = p.layers.map(function (l) { return l.id; }), rorder = R.order || [];
     var order = (man && sameOrder(lorder, B.order || []) ? rorder : lorder).filter(function (id) { return out[id]; });
     rorder.forEach(function (id, i) { // layers that only exist in the cloud: next to their cloud neighbour
@@ -292,8 +309,8 @@
       return cur;
     });
     if (!sameOrder(layers.map(function (l) { return l.id; }), p.layers.map(function (l) { return l.id; }))) any = true;
-    var metaChanged = META.filter(function (f) { return (p[f] == null ? '' : p[f]) !== res.meta[f]; });
-    metaChanged.forEach(function (f) { p[f] = res.meta[f]; });
+    var metaChanged = META.filter(function (f) { return !sameV(p[f] == null ? '' : p[f], res.meta[f]); });
+    metaChanged.forEach(function (f) { if (f === 'job' && !res.meta[f]) delete p.job; else p[f] = res.meta[f]; });
     if (!any && !metaChanged.length) return false;
     p.layers.splice.apply(p.layers, [0, p.layers.length].concat(layers));
     if (!res.out[p.activeLayer]) { var d = layers.filter(function (l) { return l.kind === 'drawing'; }).pop(); p.activeLayer = d ? d.id : null; }
@@ -327,7 +344,7 @@
     Object.keys(res.files).forEach(function (id) { res.files[id].forEach(function (f) { blobs.push(f.h); }); });
     Object.keys(res.photos).forEach(function (id) { blobs.push(res.photos[id]); });
     var seen = {}; blobs = blobs.filter(function (h) { if (seen[h]) return false; seen[h] = true; return true; });
-    return { v: 1, device: cfg().device || '', meta: { name: res.meta.name, notes: res.meta.notes, basemap: res.meta.basemap, view: p.view, created: p.created },
+    return { v: 1, device: cfg().device || '', meta: { name: res.meta.name, notes: res.meta.notes, basemap: res.meta.basemap, job: res.meta.job || undefined, view: p.view, created: p.created },
       order: res.order, layers: layers, files: res.files, photos: res.photos, blobs: blobs };
   }
   function differs(a, b) {
@@ -335,7 +352,7 @@
     return JSON.stringify([a.order, a.layers, a.files, META.map(function (f) { return a.meta[f]; })]) !== JSON.stringify([b.order, b.layers, b.files || {}, META.map(function (f) { return b.meta[f]; })]);
   }
   function baseOf(p, layersById, order, meta, files, rev, prev) {
-    var b = { rev: rev, team: team() ? team().id : undefined, order: order.slice(), meta: {}, files: files || {}, layers: {} };
+    var b = { rev: rev, team: spaceId(p), order: order.slice(), meta: {}, files: files || {}, layers: {} };
     META.forEach(function (f) { b.meta[f] = meta[f]; });
     order.forEach(function (id) {
       var l = layersById[id];
@@ -402,7 +419,7 @@
     var stillOurs = function () { return isOpen ? GC.project === p : !(GC.project && GC.project.id === p.id); };
     function round(rem) {
       return (rem !== undefined ? Promise.resolve(rem) : getRemote(p.id)).then(function (rem) {
-        if (p.cloudOff || otherTeam(p) || !stillOurs()) return 'skip';
+        if (p.cloudOff || otherTeam(p) || !stillOurs() || (signedIn() && !spaceId(p))) return 'skip'; // signed in but in no team: only private jobs sync
         var base = p.cloud || null;
         if (rem && rem.deleted) {
           if (base) { // deleted from the cloud on another device: keep this copy, stop sharing it
@@ -439,7 +456,7 @@
             return downloadFiles(p, res).then(function () {
               if (!differs(mf, man)) { p.cloud = resBase; return Store.saveProject(p, {}).then(function () { return 'ok'; }); }
               return upload(p, res, mf).then(function () {
-                return api('PUT', 'projects/' + p.id, { baseRev: rev, manifest: mf }, { conflict: true });
+                return api('PUT', 'projects/' + p.id, { baseRev: rev, manifest: mf }, { conflict: true, space: spaceOf(p) || undefined });
               }).then(function (r) {
                 if (r.conflict) {
                   if (++attempts > 4) throw new Error('The project keeps changing on another device; will retry.');
@@ -487,7 +504,7 @@
       if (again) { again = false; clearTimeout(timer); timer = setTimeout(function () { run(true); }, 1000); }
     }, function (e) {
       clearTimeout(slow); running = false;
-      if (e.offline) setStatus('offline'); else { setStatus('error', e.status === 401 ? 'the team join code was changed. Tap ☁ and join again with the new code.' : e.message); if (e.status === 401 && !warned401) GC.toast('The team join code was changed. Tap ☁ (top bar) and join again with the new code.', 'err', 9000); }
+      if (e.offline) setStatus('offline'); else if (e.signedOut) setStatus('off'); else { setStatus('error', e.status === 401 && !signedIn() ? 'the team join code was changed. Tap ☁ and sign in (or join again with the new code).' : e.message); if (e.status === 401 && !signedIn() && !warned401) GC.toast('The team join code was changed. Tap ☁ (top bar) to sign in, or join again with the new code.', 'err', 9000); }
       if (e.status === 401) warned401 = true;
       if (again) { again = false; schedule(5000); }
     });
@@ -495,8 +512,9 @@
   /** Syncs the projects that are not open: new ones, ones with unsent changes, and ones changed elsewhere. */
   function syncOthers() {
     if (!on() || navigator.onLine === false) return Promise.resolve();
-    return Promise.all([Store.listProjects(true), api('GET', 'projects')]).then(function (r) {
-      var remote = {}; r[1].projects.forEach(function (x) { remote[x.id] = x; });
+    var lists = [team() || !signedIn() ? api('GET', 'projects') : Promise.resolve({ projects: [] }), signedIn() ? api('GET', 'projects', null, { space: 'me' }) : Promise.resolve({ projects: [] })];
+    return Promise.all([Store.listProjects(true)].concat(lists)).then(function (r) {
+      var remote = {}; r[1].projects.concat(r[2].projects).forEach(function (x) { remote[x.id] = x; });
       var pend = pendingSet();
       var todo = r[0].filter(function (m) {
         if (m.cloudOff || otherTeam(m) || (GC.project && m.id === GC.project.id)) return false;
@@ -591,6 +609,7 @@
   }
   /** The Team & cloud screen (top-bar cloud button). */
   function openTeam() {
+    if (GC.account) { GC.account.open(); return; } // accounts (js/account.js)
     var c = cfg();
     if (!on()) {
       GC.modal('<h2>Team & cloud</h2><p class="sub">Join a team, or create one, and projects are saved to the cloud automatically and open on every iPad or computer in the team. This iPad keeps a copy and works offline.</p>' +
@@ -670,17 +689,18 @@
   }
 
   /** Projects in the cloud (for the Projects sheet); [] when off or unreachable. */
-  function remoteList() {
-    if (!on() || navigator.onLine === false) return Promise.resolve(null);
-    return api('GET', 'projects', null, { timeout: 8000 }).then(function (r) { return r.projects.filter(function (x) { return !x.deleted && !/^mylib/.test(x.id); }); }, function () { return null; });
+  function remoteList(space) {
+    if (!on() || navigator.onLine === false || (space !== 'me' && !team() && signedIn()) || (space === 'me' && !signedIn())) return Promise.resolve(null);
+    return api('GET', 'projects', null, { timeout: 8000, space: space }).then(function (r) { return r.projects.filter(function (x) { return !x.deleted && !/^mylib/.test(x.id); }); }, function () { return null; });
   }
   /** Copies a cloud project onto this device. */
-  function download(id) {
+  function download(id, space) {
     return getRemote(id).then(function (rem) {
       if (!rem || rem.deleted || !rem.manifest) throw new Error('That project is no longer in the cloud.');
       var m = rem.manifest.meta || {};
       var p = { id: id, name: m.name || 'Untitled', created: m.created || Date.now(), modified: Date.now(), notes: m.notes || '', view: m.view || { lat: GC.TOOWOOMBA[0], lon: GC.TOOWOOMBA[1], zoom: 14 },
-        basemap: m.basemap || 'qld', activeLayer: null, layers: [], cloud: { rev: 0, team: team() ? team().id : undefined, order: [], layers: {}, files: {}, meta: { name: m.name || 'Untitled', notes: m.notes || '', basemap: m.basemap || 'qld' } } };
+        basemap: m.basemap || 'qld', activeLayer: null, layers: [], cloud: { rev: 0, team: space === 'me' ? 'me' : team() ? team().id : undefined, order: [], layers: {}, files: {}, meta: { name: m.name || 'Untitled', notes: m.notes || '', basemap: m.basemap || 'qld', job: '' } } };
+      if (m.job) p.job = m.job;
       return Store.saveProject(p, {}).then(function () { return enqueue(function () { return syncProject(p, false); }); }).then(function () { return Store.loadProject(id); });
     });
   }
@@ -701,7 +721,12 @@
   }
   function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff && !otherTeam(meta); }
 
-  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, hash: hash,
+  /** After signing in or out, switching team, or from the account screen: show the state and sync now. */
+  function refresh(quiet) {
+    setStatus(on() ? (status.state === 'off' ? 'idle' : status.state) : 'off'); refreshProjectTab(); outWarned = false;
+    if (!quiet && on()) { lastCheck = 0; run(true).then(syncOthers); }
+  }
+  GC.cloud = { api: api, signedIn: signedIn, spaceOf: spaceOf, refresh: refresh, on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, hash: hash,
     blob: getBlob, missing: function (pid, hashes) { return api('POST', 'projects/' + pid + '/missing', { hashes: hashes }).then(function (r) { return r.missing; }); }, touch: function (id) { pending(id, true); },
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
@@ -709,5 +734,5 @@
   if ($('btn-cloud')) $('btn-cloud').onclick = openTeam;
   refreshProjectTab();
   setStatus(on() ? 'idle' : 'off');
-  if (on()) setTimeout(function () { refreshTeam().then(function () { return run(true); }).then(syncOthers); }, 1500);
+  if (on()) setTimeout(function () { (signedIn() ? Promise.resolve() : refreshTeam()).then(function () { return run(true); }).then(syncOthers); }, 1500);
 })(window);

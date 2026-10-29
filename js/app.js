@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.13' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.14' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -33,7 +33,8 @@
   /** Opens the modal; `build(el, close)` fills it. Returns close(). */
   GC.modal = function (html, build, onClose) {
     if (modalClose) modalClose();
-    var wrap = $('modal-wrap'), el = $('modal');
+    var wrap = $('modal-wrap'), old = $('modal'), el = old.cloneNode(false); // a fresh box each time: listeners added to the last dialog must not fire in this one
+    old.parentNode.replaceChild(el, old);
     el.innerHTML = html; wrap.hidden = false;
     var closed = false;
     var close = function () { if (closed) return; closed = true; wrap.hidden = true; el.innerHTML = ''; modalClose = null; if (onClose) onClose(); };

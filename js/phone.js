@@ -37,7 +37,7 @@
   var more = document.createElement('section'); more.id = 'phone-more'; more.className = 'phone-sheet'; more.hidden = true;
   var M = [['import', 'i-import', 'Import a file'], ['mymaps', 'i-folder-open', 'My maps'], ['online', 'i-globe', 'Online maps'], ['map', 'i-layers', 'Background & offline'],
     ['measure', 'i-ruler', 'Measure'], ['gps', 'i-gps', 'GPS, tracks & waypoints'], ['search', 'i-search', 'Search'], ['export', 'i-export', 'Share / export'],
-    ['projects', 'i-folder', 'Projects'], ['cloud', 'i-cloud', 'Team & cloud'], ['help', 'i-help', 'Help'], ['settings', 'i-gear', 'Settings']];
+    ['projects', 'i-folder', 'Projects'], ['cloud', 'i-cloud', 'Account & teams'], ['help', 'i-help', 'Help'], ['settings', 'i-gear', 'Settings']];
   more.innerHTML = '<div class="cs-grab"></div><h2>More</h2><div class="pm-grid">' + M.map(function (m) { return '<button data-m="' + m[0] + '"><svg><use xlink:href="#' + m[1] + '"/></svg><span>' + m[2] + '</span></button>'; }).join('') + '</div>';
   document.body.appendChild(more);
 

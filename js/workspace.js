@@ -52,9 +52,11 @@
         return load(m.id).then(function (p) {
           if (!p) return;
           if (!p.notes && p.layers.every(function (l) { return l.kind === 'drawing' && !l.items.length; })) return Store.deleteProject(p.id); // an untouched, empty start-up project: nothing to keep
-          p.cloudOff = true; p.job = p.job || { created: p.created || Date.now(), from: null, sent: 0 };
-          if (GC.project && GC.project.id === p.id) { GC.project.cloudOff = true; GC.project.job = p.job; }
-          return Store.putFile(p.id, '_job', BASE, '[]').then(function () { return Store.saveProject(p, {}); });
+          if (!GC.cloud.signedIn()) p.cloudOff = true;
+          p.job = p.job || { created: p.created || Date.now(), from: null, sent: 0, base: {} };
+          if (GC.project && GC.project.id === p.id) { if (p.cloudOff) GC.project.cloudOff = true; GC.project.job = p.job; }
+          if (!p.cloudOff) GC.cloud.touch(p.id);
+          return Store.saveProject(p, {});
         });
       }));
     }).then(openTeam);
@@ -78,65 +80,77 @@
     GC.busy(fromTeam ? 'Copying the team workspace…' : 'Creating the job…');
     return GC.saveNow().then(function () { return fromTeam && wsId() ? ensureWs() : null; }).then(function (ws) {
       var p = GC.newProject(name), c = map.getCenter();
-      p.cloudOff = true; p.job = { created: Date.now(), from: ws ? ws.id : null, sent: 0 };
+      if (!GC.cloud.signedIn()) p.cloudOff = true; // signed in: the job follows you to your other devices (your private space)
+      p.job = { created: Date.now(), from: ws ? ws.id : null, sent: 0, base: {} };
       p.view = { lat: c.lat, lon: c.lng, zoom: map.getZoom() };
-      var base = [];
       var go = Promise.resolve();
       if (ws) {
         p.layers = clean(ws.layers); p.view = ws.view || p.view; p.basemap = ws.basemap || p.basemap; p.notes = ws.notes || '';
         p.activeLayer = (p.layers.filter(function (l) { return l.kind === 'drawing'; }).pop() || {}).id || null;
         if (!p.layers.length) { var d = GC.newProject('x').layers[0]; p.layers = [d]; p.activeLayer = d.id; }
-        base = clean(ws.layers);
+        p.job.base = fingerprint(ws.layers);
         go = copyFiles(ws.id, p.id, ws.layers);
       }
-      return go.then(function () { return Store.putFile(p.id, '_job', BASE, JSON.stringify(base)); })
-        .then(function () { return Store.saveProject(p, null); }).then(function () { GC.busy(null); GC.openProject(p); return p; });
+      return go.then(function () { return Store.saveProject(p, null); }).then(function () { GC.busy(null); GC.openProject(p); return p; });
     }, function (e) { GC.busy(null); throw e; });
   }
 
-  // three-way merge of a job into the team workspace (mine wins where both changed the same thing)
+  // three-way merge of a job into the team workspace (mine wins where both changed the same thing). The job keeps a
+  // fingerprint of what it started from (or last sent): a hash per layer, per layer's settings and per item. It travels
+  // with the job (project details), so Send to team works from any of your devices.
   var COLL = { drawing: ['items', function (it) { return it.id; }], track: ['tracks', function (t) { return 's' + t.started; }], waypoints: ['waypoints', function (w) { return w.time != null ? 't' + w.time : 'j' + JSON.stringify(w); }] };
   function sig(o) { return JSON.stringify(clean(o)); }
-  function props(l) { var c = COLL[l.kind], o = {}; for (var k in l) if (!c || k !== c[0]) o[k] = l[k]; return sig(o); }
+  function h(o) { return GC.cloud.hash(sig(o)); }
+  function hp(l) { var c = COLL[l.kind], o = {}; for (var k in l) if (!c || k !== c[0]) o[k] = l[k]; return h(o); }
+  /** { layerId: { s: layer hash, p: settings hash, i: { itemKey: item hash } } } */
+  function fingerprint(layers) {
+    var fp = {};
+    (layers || []).forEach(function (l) {
+      var e = { s: h(l), p: hp(l) }, c = COLL[l.kind];
+      if (c) { e.i = {}; (l[c[0]] || []).forEach(function (x) { e.i[c[1](x)] = h(x); }); }
+      fp[l.id] = e;
+    });
+    return fp;
+  }
   function mergeColl(b, m, t, st) {
     var c = COLL[m.kind], f = c[0], key = c[1];
-    var out = props(m) !== (b ? props(b) : null) ? clean(m) : clean(t);
-    var bi = {}, mi = {}; (b ? b[f] || [] : []).forEach(function (x) { bi[key(x)] = sig(x); });
+    var out = hp(m) !== (b ? b.p : null) ? clean(m) : clean(t);
+    var bi = (b && b.i) || {}, mi = {};
     (m[f] || []).forEach(function (x) { mi[key(x)] = x; });
     var items = [], seen = {};
     (t[f] || []).forEach(function (x) {
       var k = key(x); seen[k] = true;
       var mine = mi[k], base = bi[k];
-      if (mine && sig(mine) !== base) { items.push(clean(mine)); if (sig(mine) !== sig(x)) st.changed++; } // I changed it
-      else if (!mine && base != null) { if (sig(x) === base) st.removed++; else items.push(x); } // I deleted it (unless they edited it)
+      if (mine && h(mine) !== base) { items.push(clean(mine)); if (h(mine) !== h(x)) st.changed++; } // I changed it
+      else if (!mine && base != null) { if (h(x) === base) st.removed++; else items.push(x); } // I deleted it (unless they edited it)
       else items.push(x);
     });
-    (m[f] || []).forEach(function (x) { var k = key(x); if (!seen[k] && (bi[k] == null || sig(x) !== bi[k])) { items.push(clean(x)); st.added++; } }); // new in my job
+    (m[f] || []).forEach(function (x) { var k = key(x); if (!seen[k] && (bi[k] == null || h(x) !== bi[k])) { items.push(clean(x)); st.added++; } }); // new in my job
     out[f] = items;
     return out;
   }
-  /** Counts what changed in a collection layer between base and mine (for the summary). */
+  /** Counts what changed in a collection layer between the fingerprint and mine (for the summary). */
   function countItems(b, m, st) {
     var c = COLL[m.kind]; if (!c) return;
-    var f = c[0], key = c[1], bi = {}, mk = {};
-    (b ? b[f] || [] : []).forEach(function (x) { bi[key(x)] = sig(x); });
-    (m[f] || []).forEach(function (x) { var k = key(x); mk[k] = 1; if (bi[k] == null) st.added++; else if (bi[k] !== sig(x)) st.changed++; });
+    var f = c[0], key = c[1], bi = (b && b.i) || {}, mk = {};
+    (m[f] || []).forEach(function (x) { var k = key(x); mk[k] = 1; if (bi[k] == null) st.added++; else if (bi[k] !== h(x)) st.changed++; });
     Object.keys(bi).forEach(function (k) { if (!mk[k]) st.removed++; });
   }
-  /** Applies a job's changes (mine vs base) to the team's layers. Returns { layers, st }. */
-  function apply(base, mine, team) {
+  /** Applies a job's changes (mine vs its fingerprint) to the team's layers. Returns { layers, st }. */
+  function apply(fp, mine, team) {
     var st = { layersAdded: 0, layersChanged: 0, layersRemoved: 0, added: 0, changed: 0, removed: 0 };
-    var by = function (a) { var o = {}; a.forEach(function (l) { o[l.id] = l; }); return o; };
-    var B = by(base), M = by(mine), out = team.slice(), idx = function (id) { for (var i = 0; i < out.length; i++) if (out[i].id === id) return i; return -1; };
+    var M = {}; mine.forEach(function (l) { M[l.id] = l; });
+    var out = team.slice(), idx = function (id) { for (var i = 0; i < out.length; i++) if (out[i].id === id) return i; return -1; };
     mine.forEach(function (m) {
-      var b = B[m.id], i = idx(m.id), t = i >= 0 ? out[i] : null;
-      if (b && sig(m) === sig(b)) return; // untouched in the job
+      var b = fp[m.id], i = idx(m.id), t = i >= 0 ? out[i] : null;
+      if (b && h(m) === b.s) return; // untouched in the job
       if (!t) { out.push(clean(m)); st.layersAdded++; if (COLL[m.kind]) st.added += (m[COLL[m.kind][0]] || []).length; return; } // new in my job (or deleted by the team after I changed it)
-      if (b && sig(t) === sig(b)) { out[i] = clean(m); st.layersChanged++; countItems(b, m, st); return; } // only I changed it
-      if (COLL[m.kind]) { var c = mergeColl(b, m, t, st); if (sig(c) !== sig(t)) { out[i] = c; st.layersChanged++; } return; }
+      var th = h(t);
+      if (b && th === b.s) { out[i] = clean(m); st.layersChanged++; countItems(b, m, st); return; } // only I changed it
+      if (COLL[m.kind]) { var c = mergeColl(b, m, t, st); if (h(c) !== th) { out[i] = c; st.layersChanged++; } return; }
       out[i] = clean(m); st.layersChanged++; // both changed a map layer: mine wins
     });
-    base.forEach(function (b) { if (M[b.id]) return; var i = idx(b.id); if (i >= 0 && sig(out[i]) === sig(b)) { out.splice(i, 1); st.layersRemoved++; } }); // deleted in the job
+    Object.keys(fp).forEach(function (lid) { if (M[lid]) return; var i = idx(lid); if (i >= 0 && h(out[i]) === fp[lid].s) { out.splice(i, 1); st.layersRemoved++; } }); // deleted in the job
     return { layers: out, st: st };
   }
   function summary(st) {
@@ -156,9 +170,9 @@
     var job, base, res;
     return GC.saveNow().then(function () { return load(jobId); }).then(function (p) {
       job = p; if (!job) throw new Error('That job is not on this device.');
-      return Store.getFile(job.id, '_job', BASE);
+      return job.job.base ? null : Store.getFile(job.id, '_job', BASE).then(null, function () { return null; }); // jobs from before kept a full copy
     }).then(function (b) {
-      base = b ? JSON.parse(b) : [];
+      base = job.job.base || fingerprint(b ? JSON.parse(b) : []);
       return ensureWs();
     }).then(function (ws) {
       return copyFiles(job.id, ws.id, job.layers).then(function () { return ws; });
@@ -171,9 +185,10 @@
       }
       return GC.cloud.edit(ws.id, function (w) { res = apply(base, mine, w.layers); w.layers = res.layers; return null; });
     }).then(function () {
-      job.job.sent = Date.now();
-      if (GC.project && GC.project.id === job.id) GC.project.job = job.job;
-      return Store.putFile(job.id, '_job', BASE, JSON.stringify(clean(job.layers))).then(function () { return Store.saveProject(job, {}); });
+      job.job = Object.assign({}, job.job, { sent: Date.now(), base: fingerprint(job.layers) }); // next time, only what changes after this
+      if (GC.project && GC.project.id === job.id) { GC.project.job = job.job; GC.markDirty(); }
+      else if (GC.cloud.signedIn()) GC.cloud.touch(job.id);
+      return Store.saveProject(job, {});
     }).then(function () {
       GC.busy(null);
       var s = summary(res.st);
@@ -200,9 +215,13 @@
   // ---------- the Workspaces screen (Projects, when in a team) ----------
   function openList() {
     GC.busy('Checking the team cloud…');
-    Promise.all([GC.saveNow().then(Store.listProjects), GC.cloud.remoteList().then(null, function () { return null; })]).then(function (r) {
+    Promise.all([GC.saveNow().then(Store.listProjects), GC.cloud.remoteList().then(null, function () { return null; }), GC.cloud.remoteList('me').then(null, function () { return null; })]).then(function (r) {
       GC.busy(null);
-      var local = r[0], remote = r[1] || [], ws = wsId(), cur = GC.project && GC.project.id;
+      var local = r[0], remote = r[1] || [], mine = r[2] || [], ws = wsId(), cur = GC.project && GC.project.id;
+      var here = {}; local.forEach(function (m) { here[m.id] = 1; });
+      var away = mine.filter(function (x) { return !here[x.id]; }); // private jobs on your other devices
+      var awayRow = function (x) { return '<div class="item" data-id="' + esc(x.id) + '" data-away="1"><div class="grow" data-a="openaway"><b>' + esc(x.name) + '</b><small>on your other device' + (x.device ? ' (' + esc(x.device) + ')' : '') + ' · edited ' + GC.fmtTime(x.modified) + ' · ☁ tap to open here</small></div></div>'; };
+      var myTeams = {}; ((GC.settings.cloud || {}).teams || []).forEach(function (t) { myTeams[t.id] = t.name; });
       var wsLocal = local.filter(function (m) { return m.id === ws; })[0], wsRemote = remote.filter(function (x) { return x.id === ws; })[0];
       var jobs = local.filter(function (m) { return m.job; }).sort(function (a, b) { return (b.modified || 0) - (a.modified || 0); });
       var seen = {}, older = [];
@@ -212,13 +231,13 @@
       var wsT = Math.max(wsLocal ? wsLocal.modified || 0 : 0, wsRemote ? wsRemote.modified || 0 : 0);
       var html = '<h2>Workspaces</h2><p class="sub"><b>' + esc(t.name) + '</b>: one shared team workspace, plus your private jobs on this device.</p>' +
         '<div class="ws-card' + (cur === ws ? ' current' : '') + '" data-ws><div class="ws-ic">☁</div><div class="grow"><b>' + esc(wsName) + '</b><small>Team workspace · live: everyone’s changes appear as they happen' + (wsT ? ' · edited ' + GC.fmtTime(wsT) + (wsRemote && wsRemote.device ? ' by ' + esc(wsRemote.device) : '') : '') + '</small></div><button class="btn primary" data-a="ws">' + (cur === ws ? 'Open' : 'Open') + '</button></div>' +
-        '<div class="ws-head">My jobs <small>private · offline · don’t live-update · on this device only</small></div><div class="list">' +
+        '<div class="ws-head">My jobs <small>private · ' + (GC.cloud.signedIn() ? 'on all your devices, no one else’s' : 'on this device only') + ' · the team’s changes don’t come in</small></div><div class="list">' +
         (jobs.length ? jobs.map(function (m) {
           return '<div class="item' + (m.id === cur ? ' current' : '') + '" data-id="' + esc(m.id) + '"><div class="grow" data-a="open"><b>' + esc(m.name) + '</b><small>' + (m.job.from ? 'from the team workspace · ' : '') + 'edited ' + GC.fmtTime(m.modified || m.created) + ' · ' + (m.job.sent ? 'sent to team ' + GC.fmtTime(m.job.sent) : 'not sent yet') + '</small></div>' +
             '<button class="btn" data-a="send">Send to team</button><button class="ib" data-a="ren" title="Rename">' + GC.icon('text') + '</button><button class="ib danger" data-a="del" title="Delete">' + GC.icon('trash') + '</button></div>';
-        }).join('') : '<p class="hint" style="margin:6px 2px">No private jobs yet. Start one to work offline on your own; send it to the team when it’s ready.</p>') + '</div>' +
+        }).join('') + away.map(awayRow).join('') : (away.length ? away.map(awayRow).join('') : '<p class="hint" style="margin:6px 2px">No private jobs yet. Start one to work offline on your own; send it to the team when it’s ready.' + (GC.cloud.signedIn() ? ' Your jobs follow you to your other devices.' : '') + '</p>')) + '</div>' +
         (older.length ? '<details class="ws-older"><summary>Older team projects (' + older.length + ')</summary><div class="list">' + older.map(function (x) {
-          return '<div class="item' + (x.id === cur ? ' current' : '') + '" data-id="' + esc(x.id) + '" data-old="' + (x.here ? 1 : 0) + '"><div class="grow" data-a="openold"><b>' + esc(x.name) + '</b><small>' + (x.foreign ? 'from a team this device has left (kept here only)' : 'team project from before workspaces') + ' · edited ' + GC.fmtTime(x.t) + (x.by ? ' by ' + esc(x.by) : '') + (x.here ? '' : ' · ☁ in the cloud') + '</small></div><button class="btn" data-a="copyin">Copy into team workspace</button><button class="ib danger" data-a="delold" title="Delete">' + GC.icon('trash') + '</button></div>';
+          return '<div class="item' + (x.id === cur ? ' current' : '') + '" data-id="' + esc(x.id) + '" data-old="' + (x.here ? 1 : 0) + '"><div class="grow" data-a="openold"><b>' + esc(x.name) + '</b><small>' + (x.foreign ? (myTeams[x.meta.cloud.team] ? 'in your team “' + esc(myTeams[x.meta.cloud.team]) + '” (switch team under ☁ to work in it)' : 'from a team this device has left (kept here only)') : 'team project from before workspaces') + ' · edited ' + GC.fmtTime(x.t) + (x.by ? ' by ' + esc(x.by) : '') + (x.here ? '' : ' · ☁ in the cloud') + '</small></div><button class="btn" data-a="copyin">Copy into team workspace</button><button class="ib danger" data-a="delold" title="Delete">' + GC.icon('trash') + '</button></div>';
         }).join('') + '</div></details>' : '') +
         '<div class="actions"><button class="btn" data-a="close">Close</button><button class="btn primary" data-a="newjob">+ New private job</button></div>';
       GC.modal(html, function (el, close) {
@@ -228,6 +247,11 @@
         el.addEventListener('click', function (e) {
           var it = e.target.closest('[data-id]'), a = e.target.closest('[data-a]'); if (!it || !a) return;
           var id = it.getAttribute('data-id'), act = a.getAttribute('data-a');
+          if (act === 'openaway') {
+            close(); GC.busy('Opening your job…');
+            GC.saveNow().then(function () { return GC.cloud.download(id, 'me'); }).then(function (p) { GC.busy(null); GC.openProject(p); }, function (er) { GC.busy(null); GC.toast(er.message, 'err'); });
+            return;
+          }
           if (act === 'open' || act === 'openold') {
             close(); if (GC.project && GC.project.id === id) return;
             GC.saveNow().then(function () { return load(id); }).then(function (p) { return p || GC.cloud.download(id); }).then(function (p) { GC.openProject(p); }, function (er) { GC.toast(er.message, 'err'); });
@@ -274,6 +298,6 @@
   GC.openProject = function (p) { var r = origOpen.apply(this, arguments); paintTag(); return r; };
   if ($('ws-tag')) $('ws-tag').onclick = function () { if (cloudOn()) openList(); };
 
-  GC.workspace = { active: cloudOn, id: wsId, isWs: isWs, isJob: isJob, openTeam: openTeam, onJoin: onJoin, newJob: newJob, sendToTeam: sendToTeam, copyIntoTeam: copyIntoTeam, openList: openList, _apply: apply };
+  GC.workspace = { fingerprint: fingerprint, active: cloudOn, id: wsId, isWs: isWs, isJob: isJob, openTeam: openTeam, onJoin: onJoin, newJob: newJob, sendToTeam: sendToTeam, copyIntoTeam: copyIntoTeam, openList: openList, _apply: apply };
   paintTag();
 })(window);

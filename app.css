@@ -763,3 +763,9 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
   .rg-row { grid-template-columns: 36px 76px 1fr 1fr; grid-template-areas: 'sel ph name name' 'sel ph cat imp' 'sel ph taken taken' 'chk chk chk go' 'note note note note'; }
   .rg-sel { grid-area: sel; } .rg-chkcell { grid-area: chk; } .rg-chkcell .rg-who small { display: inline; margin-left: 4px; }
 }
+/* ---------- accounts (js/account.js) ---------- */
+.ac-role { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+.ac-role.owner { background: var(--accent); color: var(--accent-ink); } .ac-role.admin { background: color-mix(in srgb, var(--accent) 25%, var(--chip)); color: var(--ink); }
+.ac-mem select { width: auto; margin: 0; padding: 6px 8px; }
+.ac-pair { font: 700 44px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em; text-align: center; padding: 18px; border-radius: 16px; background: var(--chip); margin: 10px 0; }
+.ac-teams .item, .ac-devs .item, .ac-mem .item { cursor: default; }
