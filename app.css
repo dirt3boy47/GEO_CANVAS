@@ -214,6 +214,8 @@ body.no-sidebar #sidebar { display: none; }
 .mm-map .ib, .mm-folder .ib { width: 36px; height: 36px; color: var(--muted); }
 .mm-map .ib svg, .mm-folder .ib svg { width: 20px; height: 20px; }
 .mm-folder { cursor: pointer; }
+.mm-local { color: var(--accent); font-weight: 650; }
+.mm-cloud { color: #2f6fd0; font-weight: 650; }
 .mm-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 2px 4px 10px 58px; }
 .mm-acts .btn { padding: 7px 11px; }
 .mm-move { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }

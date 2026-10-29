@@ -313,12 +313,15 @@
     return Store.saveProject(p, changed);
   }
 
+  /** Map pieces kept in the cloud by hash (My maps sheets and images): listed so the server keeps them; each device downloads them only on request. */
+  function hostedOf(l) { var out = []; (l.pieces || []).forEach(function (pc) { if (pc.h) out.push(pc.h); }); if (l.img && l.img.h) out.push(l.img.h); return out; }
   function manifestOf(p, res) {
     var layers = {}, blobs = [];
     res.order.forEach(function (id) {
       var l = res.out[id], c = info(l); layers[id] = c.h; blobs.push(c.h);
       if (c.spec) c.packs.forEach(function (pk) { blobs.push(pk.h); });
       if (c.gh) blobs.push(c.gh);
+      hostedOf(l).forEach(function (h) { blobs.push(h); });
     });
     Object.keys(res.files).forEach(function (id) { res.files[id].forEach(function (f) { blobs.push(f.h); }); });
     Object.keys(res.photos).forEach(function (id) { blobs.push(res.photos[id]); });
@@ -366,6 +369,9 @@
       producers[c.h] = function () { return Promise.resolve(layerBlob(l)); };
       if (c.spec) c.packs.forEach(function (pk) { producers[pk.h] = function () { return Promise.resolve(packBlob(l, pk)); }; });
       if (c.gh) producers[c.gh] = function () { return Promise.resolve(bigText(l)); };
+      hostedOf(l).forEach(function (h) {
+        producers[h] = producers[h] || function () { return GC.mapStore ? GC.mapStore.text(h).then(function (t) { if (!t) throw new Error('Part of a map is missing on this device; it will retry.'); return t; }) : Promise.reject(new Error('Map storage is not available.')); };
+      });
     });
     Object.keys(res.files).forEach(function (id) {
       res.files[id].forEach(function (f) {
@@ -690,7 +696,8 @@
   }
   function linked(meta) { return on() && meta && !!meta.cloud && !meta.cloudOff && !otherTeam(meta); }
 
-  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, touch: function (id) { pending(id, true); },
+  GC.cloud = { on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, hash: hash,
+    blob: getBlob, missing: function (pid, hashes) { return api('POST', 'projects/' + pid + '/missing', { hashes: hashes }).then(function (r) { return r.missing; }); }, touch: function (id) { pending(id, true); },
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
   // start

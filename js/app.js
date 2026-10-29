@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-28.10' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-29.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -418,8 +418,7 @@
     if (l.kind === 'libmap') { // a map from My maps: drawn from the library's copy
       var src = GC.mymaps && GC.mymaps.get(l.ref);
       if (!src) return;
-      if (src.kind === 'geopdf') (src.pieces || []).forEach(function (p) { v.group.addLayer(new GC.AffineImage(p.url, p.c, { pane: v.pn, clip: p.clip })); });
-      else if (src.kind === 'raster') v.group.addLayer(src.corners ? new GC.AffineImage(src.dataURL, src.corners, { pane: v.pn }) : L.imageOverlay(src.dataURL, src.bounds, { pane: v.pn, interactive: false }));
+      if (src.kind === 'geopdf' || src.kind === 'raster') v.group.addLayer(new GC.MapPieces(src, { pane: v.pn })); // from this device or streamed from the cloud
       else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono }), { pane: v.pn }));
       return;
     }
@@ -803,6 +802,7 @@
         if (src.kind !== 'cad') html += GC.lookHtml(l);
         else html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
           '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>';
+        if (GC.mymaps.hosted(src)) html += '<p class="hint">' + (GC.mymaps.isHere(src) ? '📱 Downloaded on this device: works offline.' : '☁ Shown from the cloud (needs internet). Download it in My maps to use it offline.') + '</p>';
         html += '<p class="hint">From My maps' + (src.folder ? ' › ' + GC.esc(src.folder.replace(/\//g, ' › ')) : '') + (src.crs ? ' · ' + GC.esc(String(src.crs)) : '') + '. The map is kept once in My maps and shown here; removing this layer does not delete it.</p>';
       }
     } else if (l.kind === 'drawing' || l.kind === 'track' || l.kind === 'waypoints') {

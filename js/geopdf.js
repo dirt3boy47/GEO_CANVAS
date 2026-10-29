@@ -308,7 +308,10 @@
     for (var ty = Y0; ty < Y1; ty += TILE) for (var tx = X0; tx < X1; tx += TILE) jobs.push([tx, ty, Math.min(TILE + 2, X1 - tx), Math.min(TILE + 2, Y1 - ty)]);
     var corner = function (px, py) { var p = vp.convertToPdfPoint(px, py), ll = tf.f(p[0], p[1]); return [+ll[1].toFixed(8), +ll[0].toFixed(8)]; };
     var rect = function (x, y, w, h) { return [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]; };
+    // a 200 px thumbnail for lists, and a ~1000 px overview drawn instead of the pieces when the whole sheet is on screen
     var pieces = [], k = 0, tk = 200 / Math.max(X1 - X0, Y1 - Y0), thumb = document.createElement('canvas');
+    var ok = 1000 / Math.max(X1 - X0, Y1 - Y0), ov = document.createElement('canvas');
+    ov.width = Math.max(1, Math.round((X1 - X0) * ok)); ov.height = Math.max(1, Math.round((Y1 - Y0) * ok));
     thumb.width = Math.max(1, Math.round((X1 - X0) * tk)); thumb.height = Math.max(1, Math.round((Y1 - Y0) * tk));
     var next = function () {
       if (k >= jobs.length) return Promise.resolve(pieces);
@@ -329,11 +332,17 @@
           pc.width = pc.height = 0;
         }
         thumb.getContext('2d').drawImage(cv, 0, 0, j[2], j[3], (j[0] - X0) * tk, (j[1] - Y0) * tk, j[2] * tk, j[3] * tk);
+        ov.getContext('2d').drawImage(cv, 0, 0, j[2], j[3], (j[0] - X0) * ok, (j[1] - Y0) * ok, j[2] * ok, j[3] * ok);
         cv.width = cv.height = 0; // free the memory now (iPad)
         return next();
       });
     };
-    return next().then(function (pc) { var t = thumb.toDataURL('image/jpeg', 0.7); thumb.width = 0; return { pieces: pc, thumb: t, dpi: Math.round(72 * s), frame: poly.map(function (p) { return corner(p[0], p[1]); }) }; });
+    return next().then(function (pc) {
+      var t = thumb.toDataURL('image/jpeg', 0.7), w = X1 - X0, h = Y1 - Y0;
+      var overview = { url: ov.toDataURL('image/jpeg', 0.8), c: [corner(X0, Y0), corner(X1, Y0), corner(X0, Y1)],
+        clip: poly.map(function (q) { return [+((q[0] - X0) / w * 100).toFixed(3), +((q[1] - Y0) / h * 100).toFixed(3)]; }) };
+      thumb.width = ov.width = 0;
+      return { pieces: pc, thumb: t, overview: overview, dpi: Math.round(72 * s), frame: poly.map(function (p) { return corner(p[0], p[1]); }) }; });
   }
 
   // ---------- import ----------
@@ -362,6 +371,7 @@
           rms: tf.rms, datum: g.datum, created: Date.now() };
         if (g.datum === 'unknown') l.warnings = ['The PDF does not say which datum its coordinates use; they were taken as GDA2020/WGS84.'];
         if (r.thumb) l.thumb = r.thumb;
+        l.overview = r.overview;
         var placed = function (pl) {
           GC.zoomToLayer(pl);
           GC.toast('“' + nm + '” placed from its GeoPDF data (' + g.crs + ')' + (pl.kind === 'libmap' ? ' and saved in My maps' + (GC.mymaps.importFolder() ? ' › ' + GC.mymaps.importFolder().replace(/\//g, ' › ') : '') : '') + '.' + (tf.rms != null && tf.rms > 5 ? ' Its control points disagree by ' + Math.round(tf.rms) + ' m.' : ''), tf.rms > 5 ? 'warn' : null, 8000);
