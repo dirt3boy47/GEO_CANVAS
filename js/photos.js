@@ -98,7 +98,78 @@
     return blob(id).then(function (b) { if (!b) return null; urls[id] = URL.createObjectURL(b); return urls[id]; });
   }
 
-  /** Thumbnail strip. opts: { onAdd, onChange(refs) } — onChange makes photos removable in the viewer. */
+  // ---------- exporting: named files that carry their date, place and name ----------
+  /** A safe file name from an action's name: "Defect 01.jpg", or "Defect 01 (2).jpg" for its second photo. */
+  function fileName(name, i, n) {
+    var b = String(name || 'Photo').replace(/[\\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Photo';
+    return b + (n > 1 ? ' (' + (i + 1) + ')' : '') + '.jpg';
+  }
+  /** An EXIF block (big-endian) with the date taken, GPS position and a description, for exported photos
+      (stored photos are re-compressed, which drops the camera's own EXIF). meta: { t, lat, lon, ele, title }. */
+  function exifBlock(meta) {
+    var enc = function (s) { s = String(s).replace(/[^\x20-\x7e]/g, '?'); var a = new Uint8Array(s.length + 1); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
+    var two = function (n) { return (n < 10 ? '0' : '') + n; };
+    var stamp = function (t) { var d = new Date(t); return d.getFullYear() + ':' + two(d.getMonth() + 1) + ':' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds()); };
+    var u32 = function (v) { return [v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255]; };
+    var rats = function (pairs) { var a = []; pairs.forEach(function (p) { a = a.concat(u32(p[0]), u32(p[1])); }); return new Uint8Array(a); };
+    var dms = function (x) { x = Math.abs(x); var d = Math.floor(x), mf = (x - d) * 60, m = Math.floor(mf), s = Math.round((mf - m) * 60 * 10000); return rats([[d, 1], [m, 1], [s, 10000]]); };
+    var E = function (tag, type, count, bytes) { return { tag: tag, type: type, count: count, bytes: bytes }; };
+    var ascii = function (tag, s) { var b = enc(s); return E(tag, 2, b.length, b); };
+    var ifd0 = [], exif = [], gps = [];
+    if (meta.title) ifd0.push(ascii(0x010E, meta.title));
+    ifd0.push(ascii(0x0131, 'GeoCanvas'));
+    if (meta.t) { ifd0.push(ascii(0x0132, stamp(meta.t))); exif.push(ascii(0x9003, stamp(meta.t)), ascii(0x9004, stamp(meta.t))); }
+    if (exif.length) ifd0.push(E(0x8769, 4, 1, new Uint8Array(4)));
+    if (meta.lat != null && meta.lon != null && isFinite(meta.lat) && isFinite(meta.lon)) {
+      gps.push(E(0x0000, 1, 4, new Uint8Array([2, 3, 0, 0])), ascii(0x0001, meta.lat < 0 ? 'S' : 'N'), E(0x0002, 5, 3, dms(meta.lat)), ascii(0x0003, meta.lon < 0 ? 'W' : 'E'), E(0x0004, 5, 3, dms(meta.lon)));
+      if (meta.ele != null && isFinite(meta.ele)) gps.push(E(0x0005, 1, 1, new Uint8Array([meta.ele < 0 ? 1 : 0])), E(0x0006, 5, 1, rats([[Math.round(Math.abs(meta.ele) * 100), 100]])));
+      ifd0.push(E(0x8825, 4, 1, new Uint8Array(4)));
+    }
+    [ifd0, exif, gps].forEach(function (d) { d.sort(function (a, b) { return a.tag - b.tag; }); });
+    var size = function (d) { return d.length ? 2 + 12 * d.length + 4 + d.reduce(function (s, e) { return s + (e.bytes.length > 4 ? e.bytes.length + (e.bytes.length & 1) : 0); }, 0) : 0; };
+    var oExif = 8 + size(ifd0), oGps = oExif + size(exif);
+    ifd0.forEach(function (e) { if (e.tag === 0x8769) e.bytes = new Uint8Array(u32(oExif)); if (e.tag === 0x8825) e.bytes = new Uint8Array(u32(oGps)); });
+    var out = new Uint8Array(oGps + size(gps)), dv = new DataView(out.buffer);
+    out.set([0x4D, 0x4D, 0, 42, 0, 0, 0, 8]); // "MM", 42, first IFD at 8
+    var write = function (d, at) {
+      if (!d.length) return;
+      var data = at + 2 + 12 * d.length + 4;
+      dv.setUint16(at, d.length);
+      d.forEach(function (e, i) {
+        var p = at + 2 + 12 * i; dv.setUint16(p, e.tag); dv.setUint16(p + 2, e.type); dv.setUint32(p + 4, e.count);
+        if (e.bytes.length <= 4) out.set(e.bytes, p + 8);
+        else { dv.setUint32(p + 8, data); out.set(e.bytes, data); data += e.bytes.length + (e.bytes.length & 1); }
+      });
+      dv.setUint32(at + 2 + 12 * d.length, 0);
+    };
+    write(ifd0, 8); write(exif, oExif); write(gps, oGps);
+    return out;
+  }
+  /** A stored photo as a JPEG to hand out: with EXIF (date taken, GPS, name). Resolves a Blob, or null if missing. */
+  function exportBlob(ref, meta) {
+    return blob(ref.id).then(function (b) {
+      if (!b) return null;
+      return readBuf(b).then(function (buf) {
+        var src = new Uint8Array(buf);
+        if (src[0] !== 0xFF || src[1] !== 0xD8) return b;
+        var tiff = exifBlock({ t: ref.t || (meta && meta.t), lat: ref.lat != null ? ref.lat : meta && meta.lat, lon: ref.lon != null ? ref.lon : meta && meta.lon, ele: meta && meta.ele, title: meta && meta.title });
+        var len = 2 + 6 + tiff.length, seg = new Uint8Array(4 + 6 + tiff.length);
+        seg.set([0xFF, 0xE1, len >> 8, len & 255, 0x45, 0x78, 0x69, 0x66, 0, 0]); seg.set(tiff, 10);
+        // drop any EXIF already there, keep everything else
+        var parts = [src.subarray(0, 2), seg], o = 2;
+        while (o + 4 <= src.length && src[o] === 0xFF && src[o + 1] >= 0xE0 && src[o + 1] <= 0xEF) {
+          var l = (src[o + 2] << 8) | src[o + 3];
+          if (!(src[o + 1] === 0xE1 && src[o + 4] === 0x45 && src[o + 5] === 0x78)) parts.push(src.subarray(o, o + 2 + l));
+          o += 2 + l;
+        }
+        parts.push(src.subarray(o));
+        return new Blob(parts, { type: 'image/jpeg' });
+      });
+    });
+  }
+
+  /** Thumbnail strip. opts: { onAdd, onChange(refs), meta } — onChange makes photos removable in the viewer; meta
+      ({ name, lat, lon, note }) names and tags photos saved from the viewer. */
   function strip(box, refs, opts) {
     opts = opts || {};
     refs = refs || [];
@@ -114,12 +185,12 @@
     box.onclick = function (e) {
       var t = e.target.closest('[data-i]'), a = e.target.closest('[data-add]');
       if (a && opts.onAdd) { opts.onAdd(); return; }
-      if (t) view(refs, +t.getAttribute('data-i'), opts.onChange ? function (left) { opts.onChange(left); } : null);
+      if (t) view(refs, +t.getAttribute('data-i'), opts.onChange ? function (left) { opts.onChange(left); } : null, opts.meta);
     };
   }
 
   /** Full-screen viewer with swipe/arrows, Share (save to Photos or Files) and Remove. */
-  function view(refs, start, onChange) {
+  function view(refs, start, onChange, meta) {
     var i = start, box = $('photo-view');
     var show = function () {
       var r = refs[i];
@@ -134,7 +205,10 @@
     var key = function (e) { if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'ArrowRight') go(1); };
     $('pv-prev').onclick = function () { go(-1); }; $('pv-next').onclick = function () { go(1); };
     $('pv-close').onclick = close;
-    $('pv-share').onclick = function () { var r = refs[i]; blob(r.id).then(function (b) { if (b) GC.saveBlob(b, 'GeoCanvas_' + new Date(r.t).toISOString().slice(0, 10) + '_' + r.id + '.jpg'); }); };
+    $('pv-share').onclick = function () {
+      var r = refs[i], name = meta && meta.name ? fileName(meta.name, i, refs.length) : 'GeoCanvas_' + new Date(r.t).toISOString().slice(0, 10) + '_' + r.id + '.jpg';
+      exportBlob(r, meta && { lat: meta.lat, lon: meta.lon, title: meta.name + (meta.note ? ' - ' + meta.note : '') }).then(function (b) { if (b) GC.saveBlob(b, name); });
+    };
     $('pv-del').onclick = function () {
       GC.confirm('Remove this photo?', 'It is removed from this point. Undo is available for drawn markers.', 'Remove', true).then(function (ok) {
         if (!ok) return;
@@ -163,5 +237,5 @@
     return ids;
   }
 
-  GC.photos = { pick: pick, ingest: ingest, strip: strip, view: view, url: url, blob: blob, file: file, refsIn: refsIn, exif: exif };
+  GC.photos = { pick: pick, ingest: ingest, strip: strip, view: view, url: url, blob: blob, file: file, refsIn: refsIn, exif: exif, fileName: fileName, exportBlob: exportBlob };
 })(window);

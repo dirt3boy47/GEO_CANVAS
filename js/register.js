@@ -56,7 +56,7 @@
       '<select id="rg-cat">' + catOptions(st.cat, true) + '</select>' +
       '<select id="rg-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === st.min ? ' selected' : '') + '>' + (i === 0 ? 'All importance' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="seg small" id="rg-chk"><button data-c="all">All</button><button data-c="todo">To check</button><button data-c="done">Checked</button></div>' +
-      '<button class="btn" id="rg-csv">Export CSV</button><button class="btn primary" id="rg-new">+ New action</button></div></div>' +
+      '<button class="btn" id="rg-csv">Export CSV</button><button class="btn" id="rg-photos">Export photos</button><button class="btn primary" id="rg-new">+ New action</button></div></div>' +
       '<div class="rg-table" role="table"><div class="rg-row rg-head" role="row">' + H.map(function (h) { return '<span role="columnheader"' + (h[0] ? ' data-s="' + h[0] + '"' : '') + '>' + h[1] + '</span>'; }).join('') + '</div><div id="rg-body"></div></div>' +
       '<div class="actions"><span class="hint" id="rg-hint">Tap ✓ when an action has been checked. Category and importance change in place.</span><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div></div>',
     function (el, close) {
@@ -104,7 +104,7 @@
       bodyEl.addEventListener('click', function (e) {
         var b = e.target.closest('[data-k=view],[data-k=show]'); if (!b) return;
         var x = list[+b.closest('.rg-row').getAttribute('data-i')];
-        if (b.getAttribute('data-k') === 'view' && x.w.photos && x.w.photos.length) { GC.photos.view(x.w.photos, 0); return; }
+        if (b.getAttribute('data-k') === 'view' && x.w.photos && x.w.photos.length) { GC.photos.view(x.w.photos, 0, null, { name: x.w.name, lat: x.w.lat, lon: x.w.lon, note: x.w.note }); return; }
         close(); if (x.w.geom) map.fitBounds(GC.card.boundsOf(x.w.geom), { padding: [80, 80], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false }); GC.inspectWaypoint(x.l, x.w);
       });
       q('.rg-head').addEventListener('click', function (e) {
@@ -119,11 +119,63 @@
       q('#rg-chk').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; st.chk = b.getAttribute('data-c'); paint(); };
       q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(list)], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' actions register.csv'); };
       q('[data-a=done]').onclick = close;
+      q('#rg-photos').onclick = function () { exportPhotos(list.slice()); };
       q('#rg-new').onclick = function () { close(); newMenu(); };
       paint();
     }, function () { $('modal').classList.remove('wide', 'reg'); });
   }
 
+  /** File names for every photo of the listed actions, unique across the export: [{ x, ref, path }]. */
+  function photoFiles(list, folders) {
+    var used = {}, out = [];
+    list.forEach(function (x) {
+      var refs = x.w.photos || [], folder = folders ? (catName(x) || 'General').replace(/[\\\/:*?"<>|]+/g, '-') + '/' : '';
+      refs.forEach(function (r, i) {
+        var f = GC.photos.fileName(x.w.name, i, refs.length), k = (folder + f).toLowerCase(), n = 2;
+        while (used[k]) { f = GC.photos.fileName(x.w.name + ' ~' + n++, i, refs.length); k = (folder + f).toLowerCase(); } // two actions with the same name
+        used[k] = 1; out.push({ x: x, ref: r, path: folder + f });
+      });
+    });
+    return out;
+  }
+  /** The listed actions' photos as a ZIP of JPEGs named after their actions (with date, place and name inside each),
+      plus the register as CSV. On iPhone/iPad the photos can also go straight to the share sheet (Save to Photos). */
+  function exportPhotos(list) {
+    var withPh = list.filter(function (x) { return x.w.photos && x.w.photos.length; }), n = withPh.reduce(function (s, x) { return s + x.w.photos.length; }, 0);
+    if (!n) { GC.toast('None of the actions shown in the register has a photo.', 'warn'); return; }
+    var canShare = !!(navigator.canShare && global.File && (function () { try { return navigator.canShare({ files: [new File([''], 'a.jpg', { type: 'image/jpeg' })] }); } catch (e) { return false; } })());
+    GC.modal('<h2>Export photos</h2><p class="sub">' + n + ' photo' + (n > 1 ? 's' : '') + ' from the ' + withPh.length + ' action' + (withPh.length > 1 ? 's' : '') + ' shown in the register, each named after its action (e.g. “' + esc(GC.photos.fileName(withPh[0].w.name, 0, withPh[0].w.photos.length)) + '”). Each photo carries the date it was taken, where it was and its name.</p>' +
+      '<label class="opt"><input type="checkbox" id="ep-fold"> A folder for each category</label>' +
+      '<label class="opt"><input type="checkbox" id="ep-csv" checked> Include the register (CSV)</label>' +
+      '<div class="actions"><button class="btn" data-a="no">Cancel</button><span class="spacer"></span>' + (canShare ? '<button class="btn" data-a="share">Share photos…</button>' : '') + '<button class="btn primary" data-a="zip">Download ZIP</button></div>',
+    function (el, close) {
+      el.querySelector('[data-a=no]').onclick = close;
+      var files = function () { return photoFiles(withPh, el.querySelector('#ep-fold').checked); };
+      var tagged = function (f) { var w = f.x.w; return GC.photos.exportBlob(f.ref, { lat: w.lat, lon: w.lon, ele: w.ele, title: w.name + (w.note ? ' - ' + w.note : '') }); };
+      el.querySelector('[data-a=zip]').onclick = function () {
+        var fs = files(), csvToo = el.querySelector('#ep-csv').checked, fold = el.querySelector('#ep-fold').checked, missing = 0, z = new global.JSZip(); // read before close() empties the dialog
+        close(); GC.busy('Packing ' + fs.length + ' photos…');
+        fs.reduce(function (ch, f) { return ch.then(function () { return tagged(f).then(function (b) { if (b) z.file(f.path, b); else missing++; }); }); }, Promise.resolve()).then(function () {
+          if (csvToo) z.file('actions register.csv', csv(list, fold));
+          return z.generateAsync({ type: 'blob', compression: 'STORE' });
+        }).then(function (blob) {
+          GC.busy(null);
+          var day = new Date().toISOString().slice(0, 10);
+          GC.saveBlob(blob, (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' photos ' + day + '.zip');
+          GC.toast((fs.length - missing) + ' photo' + (fs.length - missing === 1 ? '' : 's') + ' exported.' + (missing ? ' ' + missing + ' are not on this device yet (they download from the team cloud when online).' : ''), missing ? 'warn' : null, 7000);
+        }, function (e) { GC.busy(null); GC.toast(e.message, 'err'); });
+      };
+      if (canShare) el.querySelector('[data-a=share]').onclick = function () {
+        // Safari needs the share to start in this tap: gather the files first, then ask for a second tap
+        var fs = files().map(function (f) { return { f: f, path: f.path.split('/').pop() }; }), b = el.querySelector('[data-a=share]');
+        b.disabled = true; b.textContent = 'Preparing…';
+        Promise.all(fs.map(function (o) { return tagged(o.f).then(function (bl) { return bl && new File([bl], o.path, { type: 'image/jpeg' }); }); })).then(function (list2) {
+          var ready = list2.filter(Boolean); b.disabled = false; b.textContent = 'Share ' + ready.length + ' photo' + (ready.length > 1 ? 's' : '') + ' now';
+          b.onclick = function () { close(); navigator.share({ files: ready, title: GC.project.name + ' photos' }).catch(function (e) { if (e && e.name !== 'AbortError') GC.toast('Could not share: ' + e.message, 'err'); }); };
+        });
+      };
+    }, function () { setTimeout(open, 0); }); // back to the register, filters as they were
+  }
   /** + New action: a choice of photo, pin, area or line. */
   function newMenu() {
     GC.modal('<h2>New action</h2><div class="pm-grid na-grid">' +
@@ -138,19 +190,20 @@
     });
   }
   /** The register as CSV (opens in Excel: UTF-8 with BOM, CRLF lines). */
-  function csv(list) {
+  function csv(list, folders) {
+    var names = {}; photoFiles(list, !!folders).forEach(function (f) { (names[f.x.w.time] = names[f.x.w.time] || []).push(f.path); });
     var cam = GC.camera, iso = function (t) { var d = new Date(t), p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
     var q = function (v) { v = v == null ? '' : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    var head = ['Name', 'Type', 'Size', 'Category', 'Importance', 'Checked', 'Checked by', 'Checked at', 'Taken', 'Latitude', 'Longitude', 'MGA2020', 'GPS accuracy (m)', 'Note', 'Photos', 'Layer'];
+    var head = ['Name', 'Type', 'Size', 'Category', 'Importance', 'Checked', 'Checked by', 'Checked at', 'Taken', 'Latitude', 'Longitude', 'MGA2020', 'GPS accuracy (m)', 'Note', 'Photos', 'Photo files', 'Layer'];
     var lines = [head.join(',')].concat(list.map(function (x) {
       var w = x.w;
       var kd = cam.kindOf(w);
       return [w.name, kd.k, kd.size, catName(x), cam.impOf(w).n, w.chk ? 'Yes' : 'No', w.chk ? w.chk.by : '', w.chk ? iso(w.chk.t) : '', iso(cam.taken(w)),
-        w.lat.toFixed(7), w.lon.toFixed(7), Geo.fmt([w.lon, w.lat], 'mga'), w.acc != null ? Math.round(w.acc) : '', w.note || '', (w.photos || []).length, x.l.name].map(q).join(',');
+        w.lat.toFixed(7), w.lon.toFixed(7), Geo.fmt([w.lon, w.lat], 'mga'), w.acc != null ? Math.round(w.acc) : '', w.note || '', (w.photos || []).length, (names[w.time] || []).join('; '), x.l.name].map(q).join(',');
     }));
     return '﻿' + lines.join('\r\n') + '\r\n';
   }
 
   if ($('btn-photos')) $('btn-photos').onclick = open;
-  GC.register = { open: open, newMenu: newMenu, rows: rows, csv: function () { return csv(filtered()); } };
+  GC.register = { open: open, newMenu: newMenu, exportPhotos: exportPhotos, photoFiles: photoFiles, rows: rows, csv: function () { return csv(filtered()); } };
 })(window);

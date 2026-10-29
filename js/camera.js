@@ -207,7 +207,7 @@
     if (ph) {
       var hero = d.querySelector('.cam-hero');
       GC.photos.url(ph.id).then(function (u) { if (u) hero.firstChild.src = u; });
-      hero.onclick = function () { GC.photos.view(w.photos, 0); };
+      hero.onclick = function () { GC.photos.view(w.photos, 0, null, { name: w.name, lat: w.lat, lon: w.lon, note: w.note }); };
     }
     [].forEach.call(d.querySelectorAll('select'), function (s) {
       s.onchange = function () {

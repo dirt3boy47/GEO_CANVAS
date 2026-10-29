@@ -150,7 +150,8 @@
       var box = root.querySelector('.gb-photos');
       if (!spec.photos || !(spec.photos.refs || []).length && !spec.photos.onChange) { box.innerHTML = ''; return; }
       var refs = spec.photos.refs || [];
-      GC.photos.strip(box, refs, spec.photos.onChange ? { onAdd: addPhoto, onChange: function (left) { spec.photos.refs = left; spec.photos.onChange(left); paintPhotos(); } } : {});
+      var meta = { name: nm(), lat: at[1], lon: at[0], note: spec.note && spec.note.text };
+      GC.photos.strip(box, refs, spec.photos.onChange ? { onAdd: addPhoto, onChange: function (left) { spec.photos.refs = left; spec.photos.onChange(left); paintPhotos(); }, meta: meta } : { meta: meta });
       [].forEach.call(box.querySelectorAll('img'), function (im) { im.addEventListener('load', refit); });
       setTimeout(refit, 250);
     };
