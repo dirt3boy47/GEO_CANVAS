@@ -559,3 +559,71 @@ body.georef #sidebar, body.georef #toolbar, body.georef #nav-bar, body.georef .p
 .tm-code code { font: 700 20px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .08em; padding: 8px 12px; border-radius: 10px; background: var(--chip); user-select: all; -webkit-user-select: all; }
 .tm-tabs { display: flex; margin: 10px 0 4px; }
 .tm-tabs button { flex: 1; justify-content: center; }
+
+/* ---------- iPhone layout (body.phone, js/phone.js): photos first, everything in thumb reach ---------- */
+#phone-bar, #phone-locate, .phone-sheet, #card-sheet { display: none; }
+body.phone { --pbar: calc(76px + var(--safe-b)); }
+body.phone #phone-bar { display: flex; position: fixed; z-index: 1150; left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(8px + var(--safe-b)); height: 62px; align-items: center; justify-content: space-around; padding: 0 4px; border-radius: 22px; }
+#phone-bar button { flex: 1; height: 100%; border: 0; background: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font: 600 10.5px var(--font); position: relative; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+#phone-bar button svg { width: 24px; height: 24px; }
+#phone-bar button.on { color: var(--accent); }
+#phone-bar .pb-cam { flex: none; width: 70px; height: 70px; margin: -26px 2px 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 18px rgba(0,0,0,.35); border: 4px solid var(--panel-solid); }
+#phone-bar .pb-cam svg { width: 32px; height: 32px; }
+#phone-bar .pb-cam:active { transform: scale(.94); }
+.pb-n { position: absolute; top: 5px; left: calc(50% + 5px); min-width: 18px; height: 18px; border-radius: 9px; background: var(--signal); color: #fff; font: 700 10.5px/18px var(--font); font-style: normal; padding: 0 5px; }
+body.phone #phone-locate { display: grid; place-items: center; position: fixed; z-index: 1000; right: calc(12px + var(--safe-r)); bottom: calc(var(--pbar) + 16px); width: 50px; height: 50px; border-radius: 50%; border: 0; color: #1e63d6; cursor: pointer; }
+body.phone #phone-locate svg { width: 26px; height: 26px; }
+/* slim top bar: projects, project name, search, cloud */
+body.phone #topbar { overflow: visible; min-height: 50px; padding: 3px 6px; }
+body.phone #topbar .seg, body.phone #topbar .tb:not(#btn-search), body.phone #btn-sidebar, body.phone #btn-undo, body.phone #btn-redo, body.phone #btn-help, body.phone #btn-settings, body.phone #topbar .sep, body.phone #topbar .spacer { display: none; }
+body.phone .title-block { display: block; flex: 1; max-width: none; }
+body.phone #hud { display: none; }
+body.phone .leaflet-bottom.leaflet-left, body.phone .leaflet-bottom.leaflet-right { bottom: calc(var(--pbar) + 2px); }
+body.phone #nav-bar { bottom: calc(var(--pbar) + 10px); }
+body.phone.nav-on #phone-locate { bottom: calc(var(--pbar) + 104px); }
+/* sheets slide up above the tab bar */
+body.phone .phone-sheet:not([hidden]) { display: block; }
+body.phone #card-sheet:not([hidden]) { display: flex; }
+body.phone .phone-sheet, body.phone #card-sheet, body.phone #sidebar, body.phone .pop, body.phone .menu, body.phone #map-panel {
+  position: fixed; left: calc(8px + var(--safe-l)) !important; right: calc(8px + var(--safe-r)) !important; top: auto !important; bottom: calc(var(--pbar) + 6px) !important;
+  width: auto !important; max-width: none !important; max-height: calc(100% - var(--pbar) - 76px - var(--safe-t)); border-radius: 20px; z-index: 1100; }
+body.phone .phone-sheet { overflow: auto; -webkit-overflow-scrolling: touch; background: var(--panel-solid); color: var(--ink); box-shadow: var(--shadow); padding: 4px 14px 16px; }
+body.phone #phone-photos { top: calc(66px + var(--safe-t)) !important; max-height: none; }
+body.phone #measure-panel { max-height: 40%; }
+.cs-grab { width: 40px; height: 5px; border-radius: 3px; background: rgba(128,128,128,.45); margin: 6px auto 8px; flex: none; }
+#card-sheet { flex-direction: column; background: #fff; color: #202124; box-shadow: 0 -4px 30px rgba(0,0,0,.35); padding: 0 14px 12px; max-height: min(56%, calc(100% - var(--pbar) - 140px - var(--safe-t))) !important; }
+#card-sheet .cs-body { overflow: auto; -webkit-overflow-scrolling: touch; min-height: 0; flex: 1; }
+#card-sheet .cs-x { position: absolute; right: 8px; top: 6px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: #f1f3f4; color: #5f6368; font-size: 24px; line-height: 1; cursor: pointer; }
+#card-sheet .gc-card { min-width: 0; }
+#card-sheet .gb-title { padding-right: 40px; font-size: 18px; }
+#card-sheet .ca-b { padding: 9px 2px 8px; font-size: 12px; }
+#card-sheet .ca-b svg { width: 24px; height: 24px; }
+/* Photos tab */
+.pp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pp-head h2, #phone-more h2 { margin: 0; font-size: 21px; }
+.pp-head h2 small { color: var(--muted); font-weight: 600; font-size: 14px; }
+.pp-chips { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 12px; scrollbar-width: none; }
+.pp-chips::-webkit-scrollbar { display: none; }
+.pp-chips button { flex: none; border: 1.5px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 7px 13px; font: 600 13.5px var(--font); cursor: pointer; }
+.pp-chips button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 10px; }
+.pp-tile { border: 0; background: none; padding: 0; text-align: left; color: inherit; cursor: pointer; min-width: 0; font: inherit; }
+.pp-img { position: relative; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--chip); box-shadow: inset 0 -4px 0 var(--ic); }
+.pp-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pp-img::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--ic); }
+.pp-imp { position: absolute; left: 6px; top: 6px; background: var(--ic); color: #fff; font: 700 11px var(--font); padding: 3px 8px; border-radius: 999px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.pp-more { position: absolute; right: 6px; top: 6px; background: rgba(0,0,0,.6); color: #fff; font: 700 11px var(--font); padding: 3px 8px; border-radius: 999px; }
+.pp-tile b { display: block; margin-top: 6px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-tile small { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: 6px; text-align: center; padding: 36px 10px; color: var(--muted); }
+.pp-empty svg { width: 40px; height: 40px; }
+.pp-empty b { color: var(--ink); font-size: 16px; }
+/* More */
+#phone-more h2 { margin: 0 0 12px; }
+.pm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pm-grid button { border: 0; background: var(--chip); color: var(--ink); border-radius: 14px; padding: 14px 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font: 600 12.5px/1.2 var(--font); text-align: center; cursor: pointer; min-height: 88px; }
+.pm-grid svg { width: 26px; height: 26px; }
+/* big photo on a photo point's card */
+.cam-hero { grid-column: 1 / -1; border: 0; padding: 0; border-radius: 10px; overflow: hidden; background: #eee; cursor: zoom-in; display: block; width: 100%; }
+.cam-hero img { width: 100%; max-height: 190px; object-fit: cover; display: block; }
+body.phone .cam-hero img { max-height: 28vh; }

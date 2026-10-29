@@ -77,7 +77,39 @@
   // ---------- the card ----------
   var cur = null, hl = null;
   function clearHl() { if (hl) { map.removeLayer(hl); hl = null; } }
-  function close() { if (cur && cur.pop && map.hasLayer(cur.pop)) map.closePopup(cur.pop); clearHl(); }
+  function close() { if (cur && cur.shell.isOpen()) cur.shell.close(); clearHl(); }
+  // On phones the card is a bottom sheet (the map stays visible above it); elsewhere a balloon on the map.
+  var sheetEl = null, sheetGone = null;
+  function sheetShell(root, ll, onRemove) {
+    if (!sheetEl) {
+      sheetEl = document.createElement('div'); sheetEl.id = 'card-sheet'; sheetEl.hidden = true;
+      sheetEl.innerHTML = '<div class="cs-grab"></div><button class="cs-x" aria-label="Close">&times;</button><div class="cs-body"></div>';
+      document.body.appendChild(sheetEl);
+      sheetEl.querySelector('.cs-x').onclick = function () { close(); };
+      var y0 = null; // swipe down to close
+      sheetEl.addEventListener('touchstart', function (e) { y0 = sheetEl.querySelector('.cs-body').scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+      sheetEl.addEventListener('touchend', function (e) { if (y0 != null && e.changedTouches[0].clientY - y0 > 70) close(); y0 = null; }, { passive: true });
+    }
+    if (sheetGone) { var g = sheetGone; sheetGone = null; g(); }
+    var open = true, body = sheetEl.querySelector('.cs-body');
+    body.innerHTML = ''; body.scrollTop = 0; body.appendChild(root); sheetEl.hidden = false;
+    var me = {
+      isOpen: function () { return open; },
+      close: function () { if (!open) return; open = false; sheetGone = null; sheetEl.hidden = true; body.innerHTML = ''; onRemove(); },
+      refit: function () {}
+    };
+    sheetGone = function () { open = false; onRemove(); };
+    // keep the place visible above the sheet
+    setTimeout(function () {
+      if (!open) return;
+      var sz = map.getSize(), h = sheetEl.offsetHeight, pt = map.latLngToContainerPoint(ll), want = L.point(sz.x / 2, Math.max(70, (sz.y - h) / 2));
+      if (pt.y > sz.y - h - 20 || pt.y < 60 || pt.x < 20 || pt.x > sz.x - 20) map.panBy(pt.subtract(want), { animate: true });
+    }, 60);
+    return me;
+  }
+  function popupShell(pop) {
+    return { isOpen: function () { return map.hasLayer(pop); }, close: function () { map.closePopup(pop); }, refit: function () { if (!map.hasLayer(pop)) return; pop._updateLayout(); pop._updatePosition(); pop._adjustPan(); } };
+  }
   var ICON = { go: '<path d="M12 3 20 20 12 16 4 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
     measure: '<use xlink:href="#i-ruler"/>', photo: '<use xlink:href="#i-camera"/>',
     note: '<path d="M5 4h10l4 4v12H5z M15 4v4h4 M8 12h8 M8 16h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>',
@@ -103,8 +135,9 @@
     var body = root.querySelector('.gc-body');
     if (spec.body) { if (typeof spec.body === 'string') body.innerHTML = spec.body; else body.appendChild(spec.body); }
     var pop = L.popup({ className: 'gc-balloon', maxWidth: maxW + 40, minWidth: 260, maxHeight: Math.round(sz.y * 0.66), autoPanPaddingTopLeft: L.point(side + 20, 140), autoPanPaddingBottomRight: L.point(30, 70) });
-    var refit = function () { if (!map.hasLayer(pop)) return; pop._updateLayout(); pop._updatePosition(); pop._adjustPan(); };
-    var me = cur = { pop: pop, root: root, refit: refit, spec: spec };
+    var phone = document.body.classList.contains('phone'), shell = null;
+    var refit = function () { if (shell) shell.refit(); };
+    var me = cur = { pop: phone ? null : pop, root: root, refit: refit, spec: spec };
     // photos and note
     var paintPhotos = function () {
       var box = root.querySelector('.gb-photos');
@@ -132,7 +165,7 @@
     q('go').onclick = function () { nav.go({ name: nm(), geometry: target }); };
     q('measure').onclick = function () {
       var start = target.type === 'Point' ? target.coordinates : at;
-      map.closePopup(pop);
+      shell.close();
       GC.measure.open(); GC.measure.click({ latlng: L.latLng(start[1], start[0]) });
       GC.toast('Measuring from “' + nm() + '”: tap the next points.');
     };
@@ -141,7 +174,7 @@
       var has = spec.note && spec.note.save;
       noteEditor(has ? 'Note · ' + nm() : 'Pin a note here', has ? spec.note.text : '').then(function (t) {
         if (t == null) return;
-        if (has) { spec.note.text = t; spec.note.save(t); if (map.hasLayer(pop)) paintNote(); GC.toast(t ? 'Note saved.' : 'Note removed.'); }
+        if (has) { spec.note.text = t; spec.note.save(t); if (shell.isOpen()) paintNote(); GC.toast(t ? 'Note saved.' : 'Note removed.'); }
         else if (t) { var r = pin(nm(), at, { note: t }); GC.toast('Note pinned here as waypoint “' + r.w.name + '”.'); }
       });
     };
@@ -160,8 +193,10 @@
     };
     clearHl();
     if (spec.highlight) hl = L.geoJSON(spec.highlight, { interactive: false, style: { color: '#ffff00', weight: 5, opacity: 0.9, fillOpacity: 0.1, fillColor: '#ffff00' }, pointToLayer: function (f, p) { return L.circleMarker(p, { radius: 11, color: '#ffff00', weight: 3, fill: false, interactive: false }); } }).addTo(map);
-    pop.on('remove', function () { if (cur === me) { cur = null; clearHl(); } if (spec.onClose) spec.onClose(); });
-    pop.setLatLng(ll).setContent(root).openOn(map);
+    var gone = function () { if (cur === me) { cur = null; clearHl(); } if (spec.onClose) spec.onClose(); };
+    if (phone) { map.closePopup(); shell = sheetShell(root, ll, gone); }
+    else { shell = popupShell(pop); pop.on('remove', gone); pop.setLatLng(ll).setContent(root).openOn(map); }
+    me.shell = shell;
     me.refit = refit; me.paintPhotos = paintPhotos;
     return me;
   }
@@ -186,7 +221,7 @@
     function go(t) {
       stop();
       N = { name: t.name, g: t.geometry, arrived: false, fitted: false, line: null, ring: null };
-      var b = bar(); b.hidden = false; b.className = 'panel';
+      var b = bar(); b.hidden = false; b.className = 'panel'; document.body.classList.add('nav-on');
       b.querySelector('.nv-to').textContent = 'Going to ' + t.name;
       if (GC.gps) { GC.gps.start(); GC.gps.compass(); }
       update();
@@ -227,7 +262,7 @@
       if (!N) return;
       clearInterval(N.timer);
       if (N.line) map.removeLayer(N.line); if (N.ring) map.removeLayer(N.ring);
-      N = null; var b = $('nav-bar'); if (b) b.hidden = true;
+      N = null; var b = $('nav-bar'); if (b) b.hidden = true; document.body.classList.remove('nav-on');
     }
     return { go: go, stop: stop, update: update, isOn: function () { return !!N; }, nearest: nearest };
   })();

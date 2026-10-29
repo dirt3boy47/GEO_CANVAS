@@ -123,7 +123,7 @@
   var START = '<ol class="hp-steps hp-start">' +
     '<li><b>Move around and look</b><small>In <b>Navigate</b>, drag and pinch. Tap a pipe, valve or lot for its card: <b>Go</b> guides you there from your GPS position, plus Measure, Photo, Note and Copy coordinates.</small></li>' +
     '<li><b>Bring in your maps and data</b><small><b>Add</b> imports KMZ, shapefiles, GeoPDF topo sheets, DXF and plans. Topo sheets go into <b>My maps</b>, shared with the team.</small></li>' +
-    '<li><b>Photograph what you find</b><small>Tap <b>Camera</b>, take the photo, pick a category and importance: it is pinned where you stand, coloured by importance.</small></li>' +
+    '<li><b>Photograph what you find</b><small>Tap <b>Camera</b>, take the photo, pick a category and importance: it is pinned where you stand, coloured by importance. On an iPhone the big camera button sits in the middle of the bottom bar, and <b>Photos</b> lists them all.</small></li>' +
     '<li><b>Mark up the ground</b><small>Switch to <b>Draw</b> and write with Apple Pencil: notes stay pinned to the place. <b>Measure</b> gives lengths and areas.</small></li>' +
     '<li><b>Work with the team</b><small>Tap ☁ to join your team: projects and maps then save to the cloud by themselves and open on every device.</small></li>' +
     '<li><b>Going out of coverage?</b><small>Download your sheets in My maps and save the area under <b>Map › Offline maps</b>. See “Offline & online”.</small></li></ol>';

@@ -147,9 +147,14 @@
   /** Category and importance pickers for a photo point's card. */
   function cardBody(l, w, onChange) {
     var d = document.createElement('div'); d.className = 'cam-card';
-    var ro = l.locked;
-    d.innerHTML = '<label>Category<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cats(l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
+    var ro = l.locked, ph = w.photos && w.photos[0];
+    d.innerHTML = (ph ? '<button class="cam-hero" aria-label="Open the photo"><img alt=""></button>' : '') + '<label>Category<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cats(l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
       '<label>Importance<select data-k="imp"' + (ro ? ' disabled' : '') + ' style="--ic:' + impOf(w).c + '">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select></label>';
+    if (ph) {
+      var hero = d.querySelector('.cam-hero');
+      GC.photos.url(ph.id).then(function (u) { if (u) hero.firstChild.src = u; });
+      hero.onclick = function () { GC.photos.view(w.photos, 0); };
+    }
     [].forEach.call(d.querySelectorAll('select'), function (s) {
       s.onchange = function () {
         if (s.getAttribute('data-k') === 'cat') w.cat = s.value; else { w.imp = +s.value; s.style.setProperty('--ic', impOf(w).c); }
