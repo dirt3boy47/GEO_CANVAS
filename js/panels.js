@@ -402,15 +402,17 @@
   GC.inspectWaypoint = function (l, w) {
     var isCam = GC.camera && GC.camera.isPhotoPt(l, w), rows = [isCam ? [w.photos && w.photos.length ? 'Taken' : 'Created', GC.fmtTime(GC.camera.taken(w))] : ['Time', GC.fmtTime(w.time)]];
     if (w.geom && GC.camera) { var gi = GC.camera.geomInfo(w.geom); rows.push([gi.kind === 'Area' ? 'Area' : 'Length', gi.short]); }
+    if (w.sketch && GC.camera) rows.push(['Drawing', GC.camera.marks(w.sketch.length)]);
+    var shape = GC.camera ? GC.camera.shapeOf(w) : w.geom;
     if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
     if (w.ele != null) rows.push(['Altitude', Math.round(w.ele) + ' m']);
     var ll = L.latLng(w.lat, w.lon), cam = GC.camera && GC.camera.isPhotoPt(l, w), body = rowsHtml(rows);
     if (cam) { var bd = document.createElement('div'); bd.appendChild(GC.camera.cardBody(l, w, function () { var s = c && c.root.querySelector('.gc-sub'); if (s) s.textContent = l.name + ' · ' + GC.camera.label(l, w); })); bd.insertAdjacentHTML('beforeend', body); body = bd; }
-    var c = GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · ' + (cam ? GC.camera.label(l, w) : 'waypoint'), body: body, at: [w.lon, w.lat], zoom: w.geom ? GC.card.boundsOf(w.geom) : L.latLngBounds(ll, ll),
-      target: w.geom || null, highlight: w.geom || null,
+    var c = GC.card.open({ ll: ll, title: w.name || 'Waypoint', sub: l.name + ' · ' + (cam ? GC.camera.label(l, w) : 'waypoint'), body: body, at: [w.lon, w.lat], zoom: shape ? GC.card.boundsOf(shape) : L.latLngBounds(ll, ll),
+      target: shape || null, highlight: w.geom || null,
       photos: { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } },
       note: l.locked ? null : { text: w.note || '', save: function (t) { w.note = t; GC.renderLayer(l); GC.markDirty(l.id); } },
-      more: l.locked ? [] : (w.geom ? [] : [
+      more: l.locked ? [] : (w.sketch ? [{ label: 'Edit drawing', fn: function () { GC.camera.sketch({ l: l, w: w }); } }] : w.geom ? [] : [
         { label: 'Move pin', fn: function () {
           GC.closeInspector(); GC.toast('Tap the map where “' + (w.name || 'the waypoint') + '” should be.', null, 8000);
           GC.placeOnce = function (p) { w.lat = Math.round(p.lat * 1e7) / 1e7; w.lon = Math.round(p.lng * 1e7) / 1e7; w.acc = null; w.moved = true; GC.renderLayer(l); GC.markDirty(l.id); GC.toast('Moved.'); GC.inspectWaypoint(l, w); };

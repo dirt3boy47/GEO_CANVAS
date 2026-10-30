@@ -793,3 +793,19 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
 .cad-ly i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; }
 .cad-ly span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cad-ly small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- New action drawing (js/camera.js): any pen or tool, then Save makes it an action ---------- */
+#sk-bar { position: fixed; z-index: 1160; top: calc(64px + var(--safe-t)); left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 14px; border-radius: 18px; max-width: calc(100% - 20px); border: 2px solid var(--accent); }
+#sk-bar[hidden] { display: none; }
+.sk-txt { display: flex; flex-direction: column; min-width: 0; margin-right: 4px; }
+.sk-txt b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-txt small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sk-bar .btn { white-space: nowrap; }
+body.sketching #active-layer, body.sketching #mode-draw { display: none; }
+body.sketching #selbar { top: calc(126px + var(--safe-t)); }
+body.sketching #toasts { top: calc(126px + var(--safe-t)); }
+body.sketching #phone-bar, body.sketching #phone-add, body.sketching #phone-locate, body.sketching #phone-photos, body.sketching #phone-more { display: none !important; }
+body.phone.sketching #toolbar { bottom: calc(10px + var(--safe-b)); }
+body.phone #sk-bar { top: calc(58px + var(--safe-t)); left: 8px; right: 8px; -webkit-transform: none; transform: none; max-width: none; }
+body.phone #sk-bar .sk-txt { flex: 1; }
+.rg-ph img.rg-ink, .pp-img img.pp-ink { object-fit: contain; background: #f3f1ea; }

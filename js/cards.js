@@ -306,7 +306,7 @@
       });
       else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) {
         var s = score(w.name, (w.note || '') + (GC.camera && GC.camera.isPhotoPt(l, w) ? ' ' + GC.camera.label(l, w) + (w.chk ? ' checked' : ' to-check unchecked') : '')); if (!s) return; // no "photo": its "to" would match "to check"
-        res.push({ name: w.name || 'Waypoint', sub: l.name + ' · ' + (GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.label(l, w) : 'waypoint'), score: s, target: w.geom || { type: 'Point', coordinates: [w.lon, w.lat] }, open: function () { map.setView([w.lat, w.lon], Math.max(map.getZoom(), 18)); GC.inspectWaypoint(l, w); } });
+        res.push({ name: w.name || 'Waypoint', sub: l.name + ' · ' + (GC.camera && GC.camera.isPhotoPt(l, w) ? GC.camera.label(l, w) : 'waypoint'), score: s, target: (GC.camera && GC.camera.shapeOf(w)) || { type: 'Point', coordinates: [w.lon, w.lat] }, open: function () { map.setView([w.lat, w.lon], Math.max(map.getZoom(), 18)); GC.inspectWaypoint(l, w); } });
       });
       else if (l.kind === 'track') (l.tracks || []).forEach(function (t) {
         var s = score(t.name, ''); if (!s || !t.points.length) return;

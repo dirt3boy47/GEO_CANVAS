@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-30.1' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-30.2' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -503,6 +503,15 @@
             : L.polyline(w.geom.coordinates.map(flip), { pane: v.pn, renderer: v.renderer, color: col, weight: 4, dashArray: w.chk ? '6 5' : null, interactive: false });
           shp._gcWp = w; v.group.addLayer(shp);
         }
+        if (w.sketch && cam) { // a drawn action: its ink as drawn, in a dashed frame of the importance colour (tap inside it for the card)
+          var sb = cam.sketchBounds(w.sketch), fc = cam.impOf(w).c;
+          if (sb) { var fr = L.rectangle(sb, { pane: v.pn, renderer: v.renderer, color: fc, weight: 2, dashArray: '6 5', opacity: w.chk ? 0.5 : 0.9, fillColor: fc, fillOpacity: w.chk ? 0.02 : 0.06, interactive: false }); fr._gcWp = w; v.group.addLayer(fr); }
+          w.sketch.forEach(function (it) {
+            var el = cam.inkEl(it);
+            if (el.type === 'marker') { v.group.addLayer(L.marker([el.at[1], el.at[0]], { icon: markerIcon(el), pane: v.pn, interactive: false, keyboard: false })); return; }
+            var ip = new Ink.InkPath(el, 1); ip.options.renderer = v.renderer; ip.options.pane = v.pn; v.group.addLayer(ip);
+          });
+        }
         // photo points: a pin coloured by importance with the category's symbol; other waypoints: a dot
         var m = pin ? L.marker([w.lat, w.lon], { pane: v.pn, icon: cam.icon(l, w), interactive: false, keyboard: false })
           : L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
@@ -520,7 +529,7 @@
     else if (l.kind === 'raster' || l.kind === 'cad' || l.kind === 'geopdf' || (l.kind === 'service' && l.bounds)) { add(l.bounds[0][0], l.bounds[0][1]); add(l.bounds[1][0], l.bounds[1][1]); }
     else if (l.kind === 'libmap') { var s0 = GC.mymaps && GC.mymaps.get(l.ref); if (s0 && s0.bounds) { add(s0.bounds[0][0], s0.bounds[0][1]); add(s0.bounds[1][0], s0.bounds[1][1]); } }
     else if (l.kind === 'track') (l.tracks || []).forEach(function (t) { t.points.forEach(function (p) { add(p[1], p[0]); }); });
-    else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); if (w.geom) (w.geom.type === 'Polygon' ? w.geom.coordinates[0] : w.geom.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
+    else if (l.kind === 'waypoints') (l.waypoints || []).forEach(function (w) { add(w.lat, w.lon); var g = GC.camera ? GC.camera.shapeOf(w) : w.geom; if (g) (g.type === 'Polygon' ? g.coordinates[0] : g.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
     return b;
   };
   GC.zoomToLayer = function (l) {

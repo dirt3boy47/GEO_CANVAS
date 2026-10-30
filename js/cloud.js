@@ -183,7 +183,7 @@
   /** Downloads remote layers the merge may need, and hashes local source files not yet known. */
   function prefetch(p, base, man) {
     var pre = { remote: {} }, B = base || EMPTY, local = {}, packIndex = {}, geoIndex = {};
-    p.layers.forEach(function (l) {
+    synced(p).forEach(function (l) {
       local[l.id] = l; var c = info(l);
       if (c.spec) c.packs.forEach(function (pk) { packIndex[pk.h] = { l: l, pk: pk }; });
       if (c.gh) geoIndex[c.gh] = l[BIG[l.kind]];
@@ -247,12 +247,14 @@
     return out;
   }
 
+  /** The project's layers that sync: all but an action drawing still being drawn (js/camera.js). */
+  function synced(p) { return GC.tempLayer ? p.layers.filter(function (l) { return l.id !== GC.tempLayer; }) : p.layers; }
   function sameOrder(a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
 
   /** Pure merge of local project, base and remote manifest (+ prefetched remote layers). */
   function merge(p, base, man, pre) {
     var B = base || EMPTY, R = man || EMPTY, local = {}, out = {}, src = {}, abort = false;
-    p.layers.forEach(function (l) { local[l.id] = l; });
+    synced(p).forEach(function (l) { local[l.id] = l; });
     var lids = {}; [local, R.layers, B.layers].forEach(function (o) { Object.keys(o).forEach(function (k) { lids[k] = true; }); });
     Object.keys(lids).forEach(function (lid) {
       var lo = local[lid], lh = lo ? info(lo).h : undefined, rh = R.layers[lid], be = B.layers[lid], bh = be ? be.h : undefined;
@@ -271,7 +273,7 @@
     if (abort) return { abort: true };
     var meta = {};
     META.forEach(function (f) { var lv = p[f] == null ? '' : p[f]; meta[f] = (man && sameV(B.meta[f], lv) && R.meta[f] != null) ? R.meta[f] : lv; });
-    var lorder = p.layers.map(function (l) { return l.id; }), rorder = R.order || [];
+    var lorder = synced(p).map(function (l) { return l.id; }), rorder = R.order || [];
     var order = (man && sameOrder(lorder, B.order || []) ? rorder : lorder).filter(function (id) { return out[id]; });
     rorder.forEach(function (id, i) { // layers that only exist in the cloud: next to their cloud neighbour
       if (!out[id] || order.indexOf(id) >= 0) return;
@@ -293,8 +295,8 @@
 
   /** Puts the merged result into the project (and onto the map when it is the open one). */
   function apply(p, res, isOpen) {
-    var changed = {}, any = false, removed = [];
-    p.layers.forEach(function (l) { if (!res.out[l.id]) { removed.push(l.id); any = true; } });
+    var changed = {}, any = false, removed = [], held = p.layers.filter(function (l) { return l.id === GC.tempLayer; });
+    synced(p).forEach(function (l) { if (!res.out[l.id]) { removed.push(l.id); any = true; } });
     var byId = {}; p.layers.forEach(function (l) { byId[l.id] = l; });
     var layers = res.order.map(function (id) {
       var o = res.out[id];
@@ -308,7 +310,8 @@
       linfo.delete(cur);
       return cur;
     });
-    if (!sameOrder(layers.map(function (l) { return l.id; }), p.layers.map(function (l) { return l.id; }))) any = true;
+    if (!sameOrder(layers.map(function (l) { return l.id; }), synced(p).map(function (l) { return l.id; }))) any = true;
+    layers = layers.concat(held); // an action drawing in progress stays on top
     var metaChanged = META.filter(function (f) { return !sameV(p[f] == null ? '' : p[f], res.meta[f]); });
     metaChanged.forEach(function (f) { if (f === 'job' && !res.meta[f]) delete p.job; else p[f] = res.meta[f]; });
     if (!any && !metaChanged.length) return false;

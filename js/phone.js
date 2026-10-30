@@ -27,7 +27,8 @@
   addSheet.innerHTML = '<div class="cs-grab"></div><h2>New action</h2><div class="pm-grid">' +
     '<button data-n="pin"><svg><use xlink:href="#i-gpt"/></svg><span>Pin at my position</span></button>' +
     '<button data-n="area"><svg><use xlink:href="#i-gpoly"/></svg><span>Draw an area</span></button>' +
-    '<button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button></div>' +
+    '<button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button>' +
+    '<button data-n="sketch"><svg><use xlink:href="#i-ballpoint"/></svg><span>New action drawing</span></button></div>' +
     '<p class="pa-hint">Tip: press and hold the map to pin that exact spot. The big camera button takes a photo action.</p>';
   document.body.appendChild(addSheet);
   var photos = document.createElement('section'); photos.id = 'phone-photos'; photos.className = 'phone-sheet'; photos.hidden = true;
@@ -105,7 +106,7 @@
     var b = e.target.closest('[data-n]'); if (!b) return;
     var n = b.getAttribute('data-n'); tab('map');
     if (!GC.camera) return;
-    if (n === 'pin') GC.camera.newAction({}); else GC.camera.drawAction(n);
+    if (n === 'pin') GC.camera.newAction({}); else if (n === 'sketch') GC.camera.sketch(); else GC.camera.drawAction(n);
   });
 
   // ---------- More ----------
@@ -185,7 +186,7 @@
     grid.innerHTML = shown.map(function (x, i) {
       var imp = cam ? cam.impOf(x.w) : { n: '', c: '#6b7280' }, c = cam && cam.catOf(x.l, x.w), photo = x.w.photos && x.w.photos[0];
       var kd = cam ? cam.kindOf(x.w) : { k: 'Pin', size: '' };
-      return '<button class="pp-tile" data-i="' + i + '" style="--ic:' + imp.c + '"><div class="pp-img">' + (photo ? '<img data-ph="' + esc(photo.id) + '" alt="">' : '<span class="pp-glyph">' + (cam ? cam.pinSvg(imp.c, c) : '') + '</span>') +
+      return '<button class="pp-tile" data-i="' + i + '" style="--ic:' + imp.c + '"><div class="pp-img">' + (photo ? '<img data-ph="' + esc(photo.id) + '" alt="">' : x.w.sketch && cam ? '<img class="pp-ink" src="' + cam.sketchThumb(x.w, 160) + '" alt="">' : '<span class="pp-glyph">' + (cam ? cam.pinSvg(imp.c, c) : '') + '</span>') +
         (cam && cam.isPhotoPt(x.l, x.w) ? '<span class="pp-imp">' + esc(imp.n) + '</span>' : '') + (x.w.photos && x.w.photos.length > 1 ? '<span class="pp-more">' + x.w.photos.length + '</span>' : '') + (x.w.chk ? '<span class="pp-chk" title="' + esc(cam.checkedText(x.w)) + '">✓</span>' : '') + '</div>' +
         '<b>' + esc(x.w.name || 'Action') + '</b><small>' + esc((kd.k !== 'Photo' ? kd.k + (kd.size ? ' ' + kd.size : '') + ' · ' : '') + (c ? c.name + ' · ' : '') + ago(x.w.time) + (x.d != null ? ' · ' + (x.d < 3 ? 'here' : GC.fmtDist(x.d)) : '')) + '</small></button>';
     }).join('');
@@ -193,7 +194,7 @@
     [].forEach.call(grid.querySelectorAll('.pp-tile'), function (t) {
       t.onclick = function () {
         var x = shown[+t.getAttribute('data-i')]; tab('map');
-        if (x.w.geom) map.fitBounds(GC.card.boundsOf(x.w.geom), { padding: [60, 60], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false });
+        var sh = GC.camera.shapeOf(x.w); if (sh) map.fitBounds(GC.card.boundsOf(sh), { padding: [60, 60], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false });
         GC.inspectWaypoint(x.l, x.w);
       };
     });

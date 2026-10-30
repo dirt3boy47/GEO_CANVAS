@@ -103,14 +103,64 @@
     if (c.length % 2 === 0 && c.length > 1) { var n = c[c.length / 2]; m = [(m[0] + n[0]) / 2, (m[1] + n[1]) / 2]; }
     return { text: 'Line ' + GC.fmtDist(Geo.pathLength(c)), short: GC.fmtDist(Geo.pathLength(c)), ll: m, kind: 'Line' };
   }
-  /** What kind of action a waypoint is: Photo, Pin, Area or Line (+ size). */
+  function marks(n) { return n + (n === 1 ? ' mark' : ' marks'); }
+  var inkCopies = typeof WeakMap === 'function' ? new WeakMap() : null;
+  /** A drawable copy of a drawn action's ink item (the copy carries the render cache; the saved item stays plain data). */
+  function inkEl(it) {
+    var c = inkCopies && inkCopies.get(it);
+    if (!c) { c = {}; for (var k in it) if (k !== '_g') c[k] = it[k]; if (inkCopies) inkCopies.set(it, c); }
+    return c;
+  }
+  /** Latitude/longitude bounds of a drawing's ink items. */
+  function sketchBounds(items) {
+    var b = null;
+    (items || []).forEach(function (it) {
+      var m; try { m = global.Ink.mercBounds(inkEl(it)); } catch (e) { return; }
+      [Geo.unmerc(m[0], m[1]), Geo.unmerc(m[2], m[3])].forEach(function (q) { if (isFinite(q[0]) && isFinite(q[1])) b = b ? b.extend([q[1], q[0]]) : L.latLngBounds([q[1], q[0]], [q[1], q[0]]); });
+    });
+    return b;
+  }
+  /** Draws ink items into a 2D context; pt(merc) gives the pixel, z the zoom of that pixel grid. Markers become dots. */
+  function drawInk(ctx, items, pt, z, r) {
+    (items || []).forEach(function (it) {
+      var el = inkEl(it);
+      if (el.type === 'marker') { var p = pt(Geo.merc(el.at[0], el.at[1])); ctx.beginPath(); ctx.arc(p[0], p[1], r || 5, 0, 7); ctx.fillStyle = el.color || '#e53935'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke(); return; }
+      try { global.Ink.draw(ctx, el, pt, z, 1); } catch (e) { /* degenerate item */ }
+    });
+  }
+  var thumbs = typeof WeakMap === 'function' ? new WeakMap() : null;
+  /** A small picture of a drawn action (PNG data URL) for the register and the phone's Actions grid. */
+  function sketchThumb(w, size) {
+    var hit = thumbs && thumbs.get(w.sketch); if (hit) return hit;
+    var b = sketchBounds(w.sketch); if (!b) return '';
+    var crs = L.CRS.EPSG3857, z = 23, pad = size * 0.1;
+    for (; z > 2; z--) { var a = crs.latLngToPoint(b.getNorthWest(), z), c = crs.latLngToPoint(b.getSouthEast(), z); if (c.x - a.x <= size - 2 * pad && c.y - a.y <= size - 2 * pad) break; }
+    var mid = crs.latLngToPoint(b.getCenter(), z), W = 256 * Math.pow(2, z), ox = mid.x - size / 2, oy = mid.y - size / 2;
+    var cv = document.createElement('canvas'), k = 2; cv.width = cv.height = size * k;
+    var ctx = cv.getContext('2d'); ctx.scale(k, k); ctx.fillStyle = '#f3f1ea'; ctx.fillRect(0, 0, size, size);
+    drawInk(ctx, w.sketch, function (m) { return [m[0] * W - ox, m[1] * W - oy]; }, z, 4);
+    var url = cv.toDataURL('image/png'); if (thumbs) thumbs.set(w.sketch, url);
+    return url;
+  }
+  /** Where a drawing's pin goes: the middle of its top edge (so the pin does not hide the drawing). */
+  function sketchPin(items) { var b = sketchBounds(items); return b ? [Math.round(b.getCenter().lng * 1e7) / 1e7, Math.round(b.getNorth() * 1e7) / 1e7] : null; }
+  /** The shape that stands for an action on the map (zoom, highlight, Go): its area or line, or the frame round its drawing. */
+  function shapeOf(w) {
+    if (w.geom) return w.geom;
+    var b = w.sketch && sketchBounds(w.sketch); if (!b) return null;
+    var s = b.getSouth(), n = b.getNorth(), e = b.getEast(), x = b.getWest();
+    return { type: 'Polygon', coordinates: [[[x, s], [e, s], [e, n], [x, n], [x, s]]] };
+  }
+  /** What kind of action a waypoint is: Photo, Pin, Area, Line or Drawing (+ size). */
   function kindOf(w) {
+    if (w.sketch) return { k: 'Drawing', size: marks(w.sketch.length) };
     if (w.geom) { var gi = geomInfo(w.geom); return { k: gi.kind, size: gi.short }; }
     return { k: w.photos && w.photos.length ? 'Photo' : 'Pin', size: '' };
   }
   /**
    * The quick sheet for a new action: photo (if any), name, category, importance, note. Closing it any other way than
-   * Discard saves. opt: { geom (drawn Polygon/LineString), at ([lon, lat] a chosen place), again (offer "Save + next photo") }.
+   * Discard saves. opt: { geom (drawn Polygon/LineString), sketch (drawing items), at ([lon, lat] a chosen place), again (offer "Save + next photo"),
+   * done (called once the sheet has closed, saved or not) }.
    * Without geom or at, the action goes at your GPS position (else the photo's own location, else the map centre).
    */
   function sheet(ref, opt) {
@@ -118,7 +168,8 @@
     var l0 = layer(false), cs = cats(l0).map(function (c) { return Object.assign({}, c); }), last = null;
     try { last = localStorage.getItem(LAST); } catch (e) { /* private mode */ }
     var st = { cat: cs.some(function (c) { return c.id === last; }) ? last : cs[0].id, imp: 0, done: false, photos: ref ? [ref] : [] };
-    var gi = opt.geom ? geomInfo(opt.geom) : null, what = opt.geom ? gi.kind.toLowerCase() : ref ? 'photo' : 'pin';
+    var sp = opt.sketch ? sketchPin(opt.sketch) : null;
+    var gi = opt.geom ? geomInfo(opt.geom) : sp ? { text: 'Drawing · ' + marks(opt.sketch.length), ll: sp, kind: 'Drawing' } : null, what = gi ? gi.kind.toLowerCase() : ref ? 'photo' : 'pin';
     var timer = null;
     var where = function () {
       if (gi) return { lat: gi.ll[1], lon: gi.ll[0], acc: null, ele: null, src: 'drawn' };
@@ -134,6 +185,7 @@
       var w = { lat: p.lat, lon: p.lon, ele: p.ele, acc: p.acc, time: Date.now(), taken: st.photos[0] ? st.photos[0].t || Date.now() : Date.now(), name: name, note: el ? el.querySelector('#cam-note').value.trim() : '', cat: st.cat, imp: st.imp };
       if (st.photos.length) w.photos = st.photos;
       if (opt.geom) w.geom = opt.geom;
+      if (opt.sketch) w.sketch = opt.sketch;
       l.waypoints.push(w);
       try { localStorage.setItem(LAST, st.cat); } catch (e) { /* private mode */ }
       if (!l.visible) l.visible = true;
@@ -183,15 +235,98 @@
       bindCats();
       var impBox = el.querySelector('#cam-imps');
       [].forEach.call(impBox.querySelectorAll('[data-i]'), function (b) { b.onclick = function () { st.imp = +b.getAttribute('data-i'); [].forEach.call(impBox.children, function (x) { x.classList.toggle('on', x === b); }); }; });
-      el.querySelector('[data-a=discard]').onclick = function () { st.done = true; clearInterval(timer); close(); GC.toast((what === 'photo' ? 'Photo' : 'Action') + ' discarded.'); };
+      el.querySelector('[data-a=discard]').onclick = function () { st.done = true; clearInterval(timer); close(); GC.toast((what === 'photo' ? 'Photo' : what === 'drawing' ? 'Drawing' : 'Action') + ' discarded.'); };
       el.querySelector('[data-a=save]').onclick = function () { save(el); close(); };
       if (opt.again) el.querySelector('[data-a=again]').onclick = function () { save(el); close(); capture(); };
-    }, function () { clearInterval(timer); if (!st.done) save(null); }); // tapped outside: keep it
+    }, function () { clearInterval(timer); if (!st.done) save(null); if (opt.done) opt.done(); }); // tapped outside: keep it
   }
   /** Starts a new action without a camera shot: { at } a pin there, { geom } a drawn area or line, {} a pin at your GPS position. */
   function newAction(opt) { if (!GC.project) return; if (!opt || (!opt.at && !opt.geom)) { if (GC.gps) GC.gps.start(); } sheet(null, opt || {}); }
   /** Draw an action area or line on the map (the measuring tool with a Create action button). */
   function drawAction(mode) { if (GC.measure) GC.measure.drawAction(mode || 'area'); }
+
+  // ---------- draw an action: pens, shapes, text and markers that become one action ----------
+  var SK = null, bar = null;
+  function plain(it) { var c = {}; for (var k in it) if (k !== '_g') c[k] = it[k]; return JSON.parse(JSON.stringify(c)); }
+  function skLayer() { return SK && GC.layerById(SK.lid); }
+  function skBar() {
+    if (bar) return bar;
+    bar = document.createElement('div'); bar.id = 'sk-bar'; bar.className = 'panel'; bar.hidden = true;
+    bar.innerHTML = '<div class="sk-txt"><b id="sk-title"></b><small id="sk-n"></small></div><button class="ib" id="sk-undo" title="Undo" aria-label="Undo"><svg><use xlink:href="#i-undo"/></svg></button>' +
+      '<button class="btn" id="sk-cancel">Cancel</button><button class="btn primary" id="sk-save">Save</button>';
+    document.body.appendChild(bar);
+    $('sk-undo').onclick = function () { GC.undo(); };
+    $('sk-cancel').onclick = cancelSketch;
+    $('sk-save').onclick = saveSketch;
+    return bar;
+  }
+  function skPaint() {
+    var l = skLayer(); if (!l) { stopSketch(); return; }
+    var n = l.items.length;
+    $('sk-n').textContent = n ? marks(n) + ' · tap Save when done' : 'Draw, write and mark up, then Save';
+    $('sk-save').disabled = !n; $('sk-undo').disabled = !GC.history.undo.length;
+  }
+  /**
+   * New action drawing: every pen, shape, text and marker tool draws on a scratch layer of its own (kept out of the team
+   * sync); Save turns the drawing into one action (the action sheet opens). opt: { l, w } changes a drawn action's ink.
+   */
+  function sketch(opt) {
+    if (!GC.project) return; opt = opt || {};
+    if (SK) stopSketch();
+    if (GC.measure && GC.measure.isOn()) GC.measure.close();
+    if (GC.closeInspector) GC.closeInspector();
+    var t = GC.newDrawingLayer(opt.w ? 'Editing ' + (opt.w.name || 'action') : 'Action drawing');
+    if (opt.w) t.items = opt.w.sketch.map(plain);
+    SK = { lid: t.id, l: opt.l, w: opt.w, prev: GC.project.activeLayer, fd: GC.settings.fingerDraw };
+    GC.tempLayer = t.id;
+    GC.insertLayer(t, true); GC.project.activeLayer = t.id;
+    if (document.body.classList.contains('phone')) GC.settings.fingerDraw = true; // no Pencil on a phone: one finger draws, two move the map
+    document.body.classList.add('sketching');
+    skBar().hidden = false; $('sk-title').textContent = opt.w ? 'Editing “' + (opt.w.name || 'action') + '”' : 'New action drawing';
+    GC.setMode('draw'); GC.refreshLayers();
+    SK.timer = setInterval(skPaint, 300); skPaint();
+    if (opt.w) { var b = sketchBounds(opt.w.sketch); if (b) map.fitBounds(b, { padding: [90, 90], maxZoom: 20, animate: false }); }
+    GC.toast(opt.w ? 'Change the drawing, then tap Save.' : 'Draw, write and mark up with any tool, then tap Save to make it an action.', null, 6000);
+  }
+  /** Ends the drawing session and removes its scratch layer. */
+  function stopSketch() {
+    if (!SK) return;
+    var s = SK; SK = null; clearInterval(s.timer); GC.tempLayer = null;
+    document.body.classList.remove('sketching'); if (bar) bar.hidden = true;
+    if (GC.settings.fingerDraw !== s.fd) { GC.settings.fingerDraw = s.fd; GC.saveSettings(); }
+    if (GC.mode === 'draw') GC.setMode('nav');
+    if (GC.layerById(s.lid)) GC.removeLayer(s.lid);
+    if (GC.layerById(s.prev)) { GC.project.activeLayer = s.prev; GC.refreshLayers(); }
+  }
+  function saveSketch() {
+    var l = skLayer(); if (!l) { stopSketch(); return; }
+    var items = l.items.map(plain), s = SK;
+    if (!items.length) { GC.toast('Draw something first, or tap Cancel.', 'warn'); return; }
+    if (s.w) { // changing a drawn action: find it again (a sync may have replaced the objects meanwhile)
+      stopSketch();
+      var al = GC.layerById(s.l.id) || s.l, w = (al.waypoints || []).filter(function (x) { return x.time === s.w.time; })[0];
+      if (!w) { GC.toast('That action was deleted meanwhile.', 'warn'); return; }
+      var pin = sketchPin(items); w.sketch = items; if (pin) { w.lon = pin[0]; w.lat = pin[1]; }
+      GC.renderLayer(al); GC.markDirty(al.id); GC.refreshLayers(true); GC.toast('Drawing updated.');
+      GC.inspectWaypoint(al, w); return;
+    }
+    // the drawing stays on show under the action sheet; the scratch layer goes once the sheet closes
+    clearInterval(s.timer); if (bar) bar.hidden = true; if (GC.mode === 'draw') GC.setMode('nav');
+    sheet(null, { sketch: items, done: stopSketch });
+  }
+  function cancelSketch() {
+    var l = skLayer(), n = l ? l.items.length : 0;
+    if (SK && !SK.w && n) {
+      GC.confirm('Discard this drawing?', 'Its ' + marks(n) + ' will be thrown away.', 'Discard', true).then(function (ok) { if (ok) { stopSketch(); GC.toast('Drawing discarded.'); } });
+      return;
+    }
+    stopSketch();
+  }
+  // the toolbar's Done (✕) and Navigate save the drawing while one is open
+  ['btn-done', 'mode-nav'].forEach(function (id) {
+    var b = $(id), was = b.onclick;
+    b.onclick = function (e) { if (SK && !bar.hidden) saveSketch(); else if (was) was.call(b, e); };
+  });
 
   // ---------- on the tap card ----------
   /** Category and importance pickers for a photo point's card. */
@@ -260,11 +395,12 @@
   $('am-pin').onclick = function () { if (GC.ui) GC.ui.close(); newAction({}); };
   $('am-area').onclick = function () { if (GC.ui) GC.ui.close(); drawAction('area'); };
   $('am-line').onclick = function () { if (GC.ui) GC.ui.close(); drawAction('line'); };
+  $('am-sketch').onclick = function () { if (GC.ui) GC.ui.close(); sketch(); };
 
   // Press and hold the map (finger or Pencil, or right-click) to drop an action pin right there.
   var hold = null;
   function holdOk(e) {
-    if (GC.mode === 'draw' || (GC.measure && GC.measure.isOn()) || GC.placeOnce || !GC.project) return false;
+    if (GC.mode === 'draw' || SK || (GC.measure && GC.measure.isOn()) || GC.placeOnce || !GC.project) return false;
     var t = e.target; return map.getContainer().contains(t) && !(t.closest && t.closest('.leaflet-control, .leaflet-popup, .leaflet-marker-draggable'));
   }
   function dropAt(x, y) {
@@ -287,5 +423,6 @@
 
   GC.camera = { capture: capture, layer: layer, icon: icon, shown: shown, isPhotoPt: isPhotoPt, label: label, cardBody: cardBody, catOf: catOf, impOf: impOf,
     optionsHtml: optionsHtml, bindOptions: bindOptions, IMP: IMP, CATS: CATS, cats: cats, taken: taken, setChecked: setChecked, checkedText: checkedText, pinSvg: pinSvg,
-    newAction: newAction, drawAction: drawAction, geomInfo: geomInfo, kindOf: kindOf, symbol: symbol };
+    newAction: newAction, drawAction: drawAction, geomInfo: geomInfo, kindOf: kindOf, symbol: symbol,
+    sketch: sketch, sketching: function () { return !!SK; }, inkEl: inkEl, drawInk: drawInk, sketchThumb: sketchThumb, sketchBounds: sketchBounds, shapeOf: shapeOf, marks: marks };
 })(window);

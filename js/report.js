@@ -78,11 +78,11 @@
   function canvasJpeg(cv, q) { return new Promise(function (res) { cv.toBlob(function (b) { bytesOf(b).then(res); }, 'image/jpeg', q || 0.85); }); }
   function loadImg(src) { return new Promise(function (res) { var im = new Image(); im.crossOrigin = 'anonymous'; var done = false, t = setTimeout(function () { if (!done) { done = true; res(null); } }, 9000); im.onload = function () { if (!done) { done = true; clearTimeout(t); res(im); } }; im.onerror = function () { if (!done) { done = true; clearTimeout(t); res(null); } }; im.src = src; }); }
   /** An overview map of the actions with numbered pins (background imagery when it can be fetched). */
-  function overview(items, pxW, pxH) {
+  function overview(items, pxW, pxH, zMax) {
     var crs = L.CRS.EPSG3857, b = null;
-    items.forEach(function (it) { var w = it.x.w, add = function (lat, lon) { b = b ? b.extend([lat, lon]) : L.latLngBounds([lat, lon], [lat, lon]); }; add(w.lat, w.lon); if (w.geom) (w.geom.type === 'Polygon' ? w.geom.coordinates[0] : w.geom.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
+    items.forEach(function (it) { var w = it.x.w, g = GC.camera.shapeOf(w), add = function (lat, lon) { b = b ? b.extend([lat, lon]) : L.latLngBounds([lat, lon], [lat, lon]); }; add(w.lat, w.lon); if (g) (g.type === 'Polygon' ? g.coordinates[0] : g.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
     if (!b) return Promise.resolve(null);
-    var pad = 70, z = 19;
+    var pad = 70, z = zMax || 19;
     for (; z > 3; z--) { var a = crs.latLngToPoint(b.getNorthWest(), z), c = crs.latLngToPoint(b.getSouthEast(), z); if (c.x - a.x <= pxW - 2 * pad && c.y - a.y <= pxH - 2 * pad) break; }
     var mid = crs.latLngToPoint(b.getCenter(), z), o = L.point(mid.x - pxW / 2, mid.y - pxH / 2);
     var px = function (lat, lon) { var p = crs.latLngToPoint(L.latLng(lat, lon), z); return [p.x - o.x, p.y - o.y]; };
@@ -109,6 +109,12 @@
           ctx.beginPath(); pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); });
           if (w.geom.type === 'Polygon') { ctx.closePath(); ctx.fillStyle = col + '40'; ctx.fill(); }
           ctx.strokeStyle = '#fff'; ctx.lineWidth = 6 * dpr; ctx.stroke(); ctx.strokeStyle = col; ctx.lineWidth = 3.5 * dpr; ctx.stroke();
+        }
+        if (w.sketch) { // a drawn action: its ink as drawn, in a dashed frame
+          var fb = GC.camera.sketchBounds(w.sketch);
+          if (fb) { var a1 = px(fb.getNorth(), fb.getWest()), a2 = px(fb.getSouth(), fb.getEast()); ctx.save(); ctx.setLineDash([8 * dpr, 6 * dpr]); ctx.strokeStyle = col; ctx.lineWidth = 2.5 * dpr; ctx.strokeRect(a1[0] - 6 * dpr, a1[1] - 6 * dpr, a2[0] - a1[0] + 12 * dpr, a2[1] - a1[1] + 12 * dpr); ctx.restore(); }
+          var Wz = 256 * Math.pow(2, z);
+          GC.camera.drawInk(ctx, w.sketch, function (m) { return [m[0] * Wz - o.x, m[1] * Wz - o.y]; }, z, 7 * dpr);
         }
       });
       items.forEach(function (it) {
@@ -141,10 +147,11 @@
   }
 
   // ---------- the report ----------
+  function hasPic(w) { return !!((w.photos && w.photos.length) || w.sketch); } // a drawing is its own picture
   function fit(iw, ih, bw, bh) { var k = Math.min(bw / iw, bh / ih); return [iw * k, ih * k]; }
   /** Builds the PDF for the listed register rows. opt: { title, by, perPage (1|2), map, noPhoto, scope } */
   function build(list, opt, progress) {
-    var cam = GC.camera, items = list.filter(function (x) { return opt.noPhoto || (x.w.photos && x.w.photos.length); }).map(function (x, i) { return { x: x, n: i + 1 }; });
+    var cam = GC.camera, items = list.filter(function (x) { return opt.noPhoto || hasPic(x.w); }).map(function (x, i) { return { x: x, n: i + 1 }; });
     var doc = new Doc(), when = new Date(), proj = GC.project, team = GC.cloud && GC.cloud.team && GC.cloud.team();
     var dateStr = when.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
     var head = function () {
@@ -155,7 +162,16 @@
     var pics = {}, missing = 0;
     var need = []; items.forEach(function (it) { (it.x.w.photos || []).slice(0, opt.perPage === 1 ? 5 : 5).forEach(function (r) { need.push(r); }); });
     var loadPics = need.reduce(function (ch, r, i) { return ch.then(function () { if (progress) progress('Adding photos ' + (i + 1) + ' of ' + need.length + '…'); return photo(r).then(function (p) { if (p) pics[r.id] = { name: doc.jpeg(p.bytes, p.w, p.h), w: p.w, h: p.h }; else missing++; }); }); }, Promise.resolve());
-    return loadPics.then(function () {
+    // a drawn action without a photo: a picture of its drawing over the imagery
+    var loadInk = function () {
+      return items.filter(function (it) { return it.x.w.sketch && !(it.x.w.photos && it.x.w.photos.length); }).reduce(function (ch, it) {
+        return ch.then(function () {
+          if (progress) progress('Drawing ' + (it.x.w.name || 'action') + '…');
+          return overview([it], 1400, 1000, 21).then(function (p) { if (p) pics['sk' + it.n] = { name: doc.jpeg(p.bytes, p.w, p.h), w: p.w, h: p.h }; }, function () {});
+        });
+      }, Promise.resolve());
+    };
+    return loadPics.then(loadInk).then(function () {
       if (progress) progress(opt.map ? 'Drawing the overview map…' : 'Laying out…');
       return opt.map && items.length ? overview(items, 1600, 1000).catch(function () { return null; }) : null;
     }).then(function (ov) {
@@ -186,7 +202,7 @@
         doc.circle(M + 11, top + 9, 11, imp.c); var ns = String(it.n); doc.text(M + 11 - textWidth(ns, 10, true) / 2, top + 12.5, ns, 10, true, '#ffffff');
         doc.text(M + 30, top + 14, w.name || 'Action', 15, true);
         doc.text(M + 30 + textWidth(w.name || 'Action', 15, true) + 8, top + 14, kd.k + (kd.size ? ' · ' + kd.size : ''), 9.5, false, '#5f6368');
-        var py = top + 28, refs = w.photos || [], big = refs[0] && pics[refs[0].id];
+        var py = top + 28, refs = w.photos || [], big = (refs[0] && pics[refs[0].id]) || (!refs.length && pics['sk' + it.n]);
         var boxW = per === 1 ? W - 2 * M : 262, boxH = per === 1 ? 380 : slotH - 70;
         if (per === 1 && !big) boxH = 0;
         if (big) { var d = fit(big.w, big.h, boxW, boxH); doc.image(big.name, M, py, d[0], d[1]); if (per !== 1) boxH = d[1]; else boxH = d[1]; }
@@ -201,7 +217,7 @@
           ['Checked', w.chk ? 'Yes — ' + w.chk.by + ', ' + GC.fmtTime(w.chk.t) : 'Not yet'],
           ['Location', w.lat.toFixed(6) + ', ' + w.lon.toFixed(6)], ['MGA2020', Geo.fmt([w.lon, w.lat], 'mga').replace(/\s+/g, ' ')]];
         if (w.acc != null) rows.push(['GPS accuracy', '±' + Math.round(w.acc) + ' m']);
-        if (kd.size) rows.push([kd.k === 'Area' ? 'Area' : 'Length', kd.size]);
+        if (kd.size) rows.push([kd.k === 'Area' || kd.k === 'Drawing' ? kd.k : 'Length', kd.size]);
         rows.forEach(function (r) {
           doc.text(dx, dy + 10, r[0], 8.5, true, '#5f6368');
           if (r[0] === 'Importance') { doc.rect(dx + 74, dy + 2, 9, 9, imp.c); doc.text(dx + 87, dy + 10, r[1], 9.5); }
@@ -226,13 +242,13 @@
   /** The report dialog (from the register). list: the register rows to report; scope: which actions, in words. */
   function open(list, scope) {
     var s = GC.settings || {}, me = (s.cloud && s.cloud.device) || s.lastName || '';
-    var withPh = list.filter(function (x) { return x.w.photos && x.w.photos.length; }).length;
-    GC.modal('<h2>PDF photo report</h2><p class="sub">' + list.length + ' action' + (list.length === 1 ? '' : 's') + ' (' + esc(scope || 'All actions') + '), ' + withPh + ' with photos.</p>' +
+    var withPh = list.filter(function (x) { return x.w.photos && x.w.photos.length; }).length, withInk = list.filter(function (x) { return x.w.sketch && !(x.w.photos && x.w.photos.length); }).length;
+    GC.modal('<h2>PDF photo report</h2><p class="sub">' + list.length + ' action' + (list.length === 1 ? '' : 's') + ' (' + esc(scope || 'All actions') + '), ' + withPh + ' with photos' + (withInk ? ', ' + withInk + ' drawing' + (withInk === 1 ? '' : 's') : '') + '.</p>' +
       '<label class="field">Title<input type="text" id="pr-title" value="Photo report"></label>' +
       '<label class="field">Prepared by<input type="text" id="pr-by" value="' + esc(me) + '" placeholder="Your name"></label>' +
       '<div class="cam-lbl">Layout</div><div class="seg small" id="pr-per"><button data-p="2" class="on">2 per page</button><button data-p="1">1 per page, large photo</button></div>' +
       '<label class="opt"><input type="checkbox" id="pr-map" checked> Overview map on the first page (numbered pins)</label>' +
-      '<label class="opt"><input type="checkbox" id="pr-nophoto" checked> Include actions without a photo</label>' +
+      '<label class="opt"><input type="checkbox" id="pr-nophoto" checked> Include actions without a photo or drawing</label>' +
       '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Create PDF</button></div>',
     function (el, close) {
       var per = 2;

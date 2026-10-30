@@ -75,7 +75,7 @@
         return '<div class="rg-row' + (w.chk ? ' done' : '') + (st.sel[rowKey(x)] ? ' picked' : '') + '" role="row" data-i="' + i + '" style="--ic:' + imp.c + '">' +
           // buttons, not hidden checkboxes: tapping a checkbox focuses it and iPhone Safari then scrolls the whole dialog to it
           '<button class="rg-sel" data-k="sel" aria-pressed="' + !!st.sel[rowKey(x)] + '" title="Select for a report or export" aria-label="Select ' + esc(w.name || 'action') + '"><i></i></button>' +
-          '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : '<span class="rg-glyph">' + cam.pinSvg(imp.c, cam.catOf(x.l, w)) + '</span>') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
+          '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : w.sketch ? '<img class="rg-ink" src="' + cam.sketchThumb(w, 96) + '" alt="">' : '<span class="rg-glyph">' + cam.pinSvg(imp.c, cam.catOf(x.l, w)) + '</span>') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
           '<span class="rg-name"><b>' + esc(w.name || 'Action') + '</b><small><span class="rg-kind">' + esc(kd.k) + '</span>' + esc((kd.size ? kd.size + ' · ' : '') + x.l.name) + '</small></span>' +
           '<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cam.cats(x.l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' +
           '<select data-k="imp" class="rg-imp"' + (ro ? ' disabled' : '') + '>' + IMP.map(function (m, k) { return '<option value="' + k + '"' + (k === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select>' +
@@ -121,7 +121,7 @@
         var b = e.target.closest('[data-k=view],[data-k=show]'); if (!b) return;
         var x = list[+b.closest('.rg-row').getAttribute('data-i')];
         if (b.getAttribute('data-k') === 'view' && x.w.photos && x.w.photos.length) { GC.photos.view(x.w.photos, 0, null, { name: x.w.name, lat: x.w.lat, lon: x.w.lon, note: x.w.note }); return; }
-        close(); if (x.w.geom) map.fitBounds(GC.card.boundsOf(x.w.geom), { padding: [80, 80], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false }); GC.inspectWaypoint(x.l, x.w);
+        close(); var sh = GC.camera.shapeOf(x.w); if (sh) map.fitBounds(GC.card.boundsOf(sh), { padding: [80, 80], maxZoom: 19, animate: false }); else map.setView([x.w.lat, x.w.lon], Math.max(map.getZoom(), 18), { animate: false }); GC.inspectWaypoint(x.l, x.w);
       });
       q('.rg-head').addEventListener('click', function (e) {
         var h = e.target.closest('[data-s]'); if (!h) return;
@@ -205,16 +205,17 @@
       };
     }, function () { setTimeout(open, 0); }); // back to the register, filters as they were
   }
-  /** + New action: a choice of photo, pin, area or line. */
+  /** + New action: a choice of photo, pin, area, line or a free drawing. */
   function newMenu() {
     GC.modal('<h2>New action</h2><div class="pm-grid na-grid">' +
       '<button data-n="photo"><svg><use xlink:href="#i-camera"/></svg><span>Photo</span></button><button data-n="pin"><svg><use xlink:href="#i-gpt"/></svg><span>Pin at my position</span></button>' +
-      '<button data-n="area"><svg><use xlink:href="#i-gpoly"/></svg><span>Draw an area</span></button><button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button></div>' +
+      '<button data-n="area"><svg><use xlink:href="#i-gpoly"/></svg><span>Draw an area</span></button><button data-n="line"><svg><use xlink:href="#i-gline"/></svg><span>Draw a line</span></button>' +
+      '<button data-n="sketch"><svg><use xlink:href="#i-ballpoint"/></svg><span>New action drawing</span></button></div>' +
       '<p class="hint">Or press and hold the map to pin a spot. Any drawing or measurement: tap it › More › Create action.</p><div class="actions"><button class="btn" data-a="no">Cancel</button></div>',
     function (el, close) {
       el.querySelector('[data-a=no]').onclick = close;
       [].forEach.call(el.querySelectorAll('[data-n]'), function (b) {
-        b.onclick = function () { var n = b.getAttribute('data-n'); close(); if (n === 'photo') GC.camera.capture(); else if (n === 'pin') GC.camera.newAction({}); else GC.camera.drawAction(n); };
+        b.onclick = function () { var n = b.getAttribute('data-n'); close(); if (n === 'photo') GC.camera.capture(); else if (n === 'pin') GC.camera.newAction({}); else if (n === 'sketch') GC.camera.sketch(); else GC.camera.drawAction(n); };
       });
     });
   }
