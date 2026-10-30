@@ -809,3 +809,4 @@ body.phone.sketching #toolbar { bottom: calc(10px + var(--safe-b)); }
 body.phone #sk-bar { top: calc(58px + var(--safe-t)); left: 8px; right: 8px; -webkit-transform: none; transform: none; max-width: none; }
 body.phone #sk-bar .sk-txt { flex: 1; }
 .rg-ph img.rg-ink, .pp-img img.pp-ink { object-fit: contain; background: #f3f1ea; }
+.inv-link input { flex: 1 1 220px; min-width: 0; font: 13px ui-monospace, Menlo, monospace; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; }

@@ -13,11 +13,13 @@
    POST   /api/me/pair                      → {code} for adding a device (valid 10 minutes)
    DELETE /api/me/devices/:id               sign one of your devices out
    POST   /api/teams                        {name} → a new team (you are its owner) and its join code
-   POST   /api/teams/join                   {code} → join a team
+   POST   /api/teams/join                   {code} or {invite} → join a team (with its join code, or an invite link's token)
+   GET    /api/invite/:token                which team an invite link is for → {team: {name}, by, expires} (no sign-in needed)
    GET    /api/teams/:id                    {team, role, code, members}
    POST   /api/teams/:id                    {name} rename (owner/admin); POST /api/teams/:id/code new join code (owner/admin)
    POST   /api/teams/:id/members/:uid       {role} (owner: make admin/member/owner); DELETE removes (owner/admin) or leaves (yourself)
    POST   /api/teams/:id/members/:uid/reset → a temporary password for a member who forgot theirs (owner/admin)
+   POST   /api/teams/:id/invite             → {token, expires} a new invite link (owner/admin; valid 14 days); DELETE stops all of them
    Project routes below work for any project in one of your teams or your own space.
 
    Devices set up before accounts send the team's join code in X-GC-Key instead, as before:
@@ -83,6 +85,12 @@ function normCode(t) { const c = String(t || '').toLowerCase().replace(/[^a-z0-9
 function newCode() { const r = new Uint32Array(12); crypto.getRandomValues(r); return normCode(Array.from(r, (x) => ALPHA[x % ALPHA.length]).join('')); }
 function codeHash(code) { return sha256('gc-team:' + normCode(code)); }
 
+const INVITE_DAYS = 14;
+function inviteHash(token) { return sha256('gc-invite:' + String(token || '').toLowerCase().replace(/[^0-9a-f]/g, '')); }
+/** The team an invite link's token is for, while the link is valid. */
+async function inviteTeam(env, token) {
+  return env.DB.prepare('SELECT t.id, t.name, u.name AS by_name, i.expires FROM invites i JOIN teams t ON t.id = i.team_id LEFT JOIN users u ON u.id = i.created_by WHERE i.token_hash = ? AND i.expires > ?').bind(await inviteHash(token), Date.now()).first();
+}
 const MAX_FAILS = 20, MAX_NEW_TEAMS = 10, WINDOW = 10 * 60 * 1000;
 function ipOf(request) { return request.headers.get('CF-Connecting-IP') || 'local'; }
 async function count(env, ip, win) { const f = await env.DB.prepare('SELECT n FROM fails WHERE ip = ? AND win = ?').bind(ip, win).first(); return f ? f.n : 0; }
@@ -222,8 +230,8 @@ async function accountApi(request, env, parts, m, me) {
   if (parts[2] === 'join' && parts.length === 3 && m === 'POST') {
     const lim = await limited(env, request, '', MAX_FAILS);
     if (lim.over) return json({ error: 'Too many wrong join codes from this connection. Wait 10 minutes and try again.' }, 429);
-    const t = await env.DB.prepare('SELECT id, name FROM teams WHERE codehash = ?').bind(await codeHash(body.code)).first();
-    if (!t) { await lim.fail(); return json({ error: 'That join code is not right. Check it with someone in your team.' }, 401); }
+    const t = body.invite ? await inviteTeam(env, body.invite) : await env.DB.prepare('SELECT id, name FROM teams WHERE codehash = ?').bind(await codeHash(body.code)).first();
+    if (!t) { await lim.fail(); return json({ error: body.invite ? 'This invite link has expired or was stopped. Ask the team’s owner or an admin for a new one.' : 'That join code is not right. Check it with someone in your team.' }, 401); }
     const had = await roleIn(env, uid, t.id);
     if (!had) await env.DB.prepare('INSERT INTO members (team_id, user_id, role, joined) VALUES (?, ?, ?, ?)').bind(t.id, uid, 'member', Date.now()).run();
     return json({ team: { id: t.id, name: t.name, role: had || 'member' } });
@@ -246,6 +254,15 @@ async function accountApi(request, env, parts, m, me) {
     if (!boss) return json({ error: 'Only the team’s owner or an admin can change the join code.' }, 403);
     const code = newCode(); await env.DB.prepare('UPDATE teams SET codehash = ? WHERE id = ?').bind(await codeHash(code), tid).run();
     return json({ code: code });
+  }
+  if (parts[3] === 'invite' && parts.length === 4) {
+    if (!boss) return json({ error: 'Only the team’s owner or an admin can invite people.' }, 403);
+    if (m === 'DELETE') { await env.DB.prepare('DELETE FROM invites WHERE team_id = ?').bind(tid).run(); return json({ ok: true }); }
+    if (m === 'POST') {
+      const token = randHex(16), now = Date.now(), expires = now + INVITE_DAYS * 86400000;
+      await env.DB.batch([env.DB.prepare('DELETE FROM invites WHERE expires < ?').bind(now), env.DB.prepare('INSERT INTO invites (token_hash, team_id, created_by, created, expires) VALUES (?, ?, ?, ?, ?)').bind(await inviteHash(token), tid, uid, now, expires)]);
+      return json({ token: token, expires: expires });
+    }
   }
   if (parts[3] === 'code' && m === 'GET') { // the join code itself is not stored: a new one is made only on request
     return json({ error: 'The join code is shown once when it is made. Make a new one to share it again.' }, 404);
@@ -284,6 +301,13 @@ async function api(request, env, url, ctx) {
   const m = request.method;
 
   if (parts[1] === 'auth' && parts[2] !== 'logout' && m === 'POST') return authApi(request, env, parts, m);
+  if (parts[1] === 'invite' && parts.length === 3 && m === 'GET') { // what an invite link is for, before signing in
+    const lim = await limited(env, request, '', MAX_FAILS);
+    if (lim.over) return json({ error: 'Too many tries from this connection. Wait 10 minutes and try again.' }, 429);
+    const t = await inviteTeam(env, parts[2]);
+    if (!t) { await lim.fail(); return json({ error: 'This invite link has expired or was stopped. Ask the team’s owner or an admin for a new one.' }, 404); }
+    return json({ team: { name: t.name }, by: t.by_name || '', expires: t.expires });
+  }
   if (request.headers.get('X-GC-Session')) return sessionApi(request, env, url, ctx, parts, m);
 
   if (parts[1] === 'teams' && parts.length === 2 && m === 'POST') { // create a team: open to anyone, rate-limited

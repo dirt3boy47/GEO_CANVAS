@@ -22,11 +22,12 @@
 
   // ---------- signing in ----------
   /** After any sign-in: keep the session, move an old join-code team onto the account, pick the team, sync. */
-  function signedIn(r) {
+  function signedIn(r, invite) {
     var old = cfg(), legacyKey = old.key, legacyTeam = old.team;
     GC.settings.cloud = { session: r.token, user: r.user, teams: r.teams || [], device: r.user.name, deviceType: deviceGuess() };
     GC.settings.lastEmail = r.user.email; GC.saveSettings();
     var up = legacyKey ? api('POST', 'teams/join', { code: legacyKey }).then(function (j) { return j.team; }, function () { return null; }) : Promise.resolve(null);
+    if (invite) up = up.then(function () { return api('POST', 'teams/join', { invite: invite.token }).then(function (j) { pendingInvite(null); return j.team; }, function (e) { pendingInvite(null); GC.toast(e.message, 'err', 8000); return null; }); });
     return up.then(function (joined) {
       return api('GET', 'me').then(function (me) { GC.settings.cloud.teams = me.teams; GC.settings.cloud.user = me.user; return joined; }, function () { return joined; });
     }).then(function (joined) {
@@ -49,9 +50,10 @@
       }));
     });
   }
-  function signInScreen(tab) {
+  function signInScreen(tab, invite) {
     var c = cfg(), legacy = c.key && c.team;
-    GC.modal('<h2>Sign in to GeoCanvas</h2><p class="sub">' + (legacy ? 'This device is in <b>' + esc(c.team.name) + '</b> with a join code. Sign in (or create your account) to keep it and have your teams and private jobs on all your devices.' :
+    GC.modal('<h2>' + (invite ? 'Join “' + esc(invite.team) + '”' : 'Sign in to GeoCanvas') + '</h2><p class="sub">' + (invite ? (invite.by ? esc(invite.by) + ' invited you to their GeoCanvas team. ' : 'You are invited to a GeoCanvas team. ') +
+      'Sign in, or create your account if you are new: you join the team straight away, no code needed.' : legacy ? 'This device is in <b>' + esc(c.team.name) + '</b> with a join code. Sign in (or create your account) to keep it and have your teams and private jobs on all your devices.' :
       'One account on your iPad, iPhone and laptop: your teams and private jobs follow you. Everything still works offline on each device.') + '</p>' +
       '<div class="seg tm-tabs" id="ac-tabs"><button data-t="in">Sign in</button><button data-t="new">Create account</button><button data-t="code">Use a code</button></div>' +
       '<div data-p="in new"><label class="field">Email<input type="email" id="ac-email" autocomplete="username" value="' + esc(GC.settings.lastEmail || '') + '"></label></div>' +
@@ -72,16 +74,17 @@
       };
       show();
       q('#ac-tabs').onclick = function (e) { var b = e.target.closest('[data-t]'); if (b) { mode = b.getAttribute('data-t'); show(); } };
-      q('[data-a=no]').onclick = close;
+      q('[data-a=no]').onclick = function () { if (invite) pendingInvite(null); close(); };
       q('[data-a=go]').onclick = function () {
         var btn = q('[data-a=go]'), label = btn.textContent, dev = deviceGuess(), job;
         if (mode === 'code') job = api('POST', 'auth/pair', { code: q('#ac-code').value, device: dev });
         else if (mode === 'new') job = api('POST', 'auth/signup', { email: q('#ac-email').value, name: q('#ac-name').value, password: q('#ac-pw').value, device: dev });
         else job = api('POST', 'auth/login', { email: q('#ac-email').value, password: q('#ac-pw').value, device: dev });
         btn.textContent = 'One moment…'; btn.disabled = true;
-        job.then(function (r) { return signedIn(r).then(function () { return r; }); }).then(function (r) {
+        job.then(function (r) { return signedIn(r, invite).then(function () { return r; }); }).then(function (r) {
           close();
-          GC.toast('Signed in as ' + r.user.name + '.' + (cfg().team ? ' Team: ' + cfg().team.name + '.' : ' Join or create a team under ☁.'), null, 6000);
+          if (invite && cfg().team && cfg().team.name === invite.team) GC.toast('Welcome to “' + invite.team + '”, ' + r.user.name + '. This is the team workspace: everyone’s changes appear here live.', null, 8000);
+          else GC.toast('Signed in as ' + r.user.name + '.' + (cfg().team ? ' Team: ' + cfg().team.name + '.' : ' Join or create a team under ☁.'), null, 6000);
           if (!cfg().team) open();
         }, function (e) { btn.textContent = label; btn.disabled = false; msg(e.offline ? 'No internet connection. Signing in needs to be online once.' : e.message); });
       };
@@ -194,6 +197,7 @@
             (canReset ? '<button class="btn" data-a="reset" title="For someone who forgot their password">Reset password</button>' : '') +
             (canRemove ? '<button class="ib danger" data-a="remove" title="Remove from the team">' + GC.icon('trash') + '</button>' : '') + '</div>';
         }).join('') + '</div>' +
+        (boss ? '<div class="row-btns"><button class="btn primary" data-a="invite">Share invite link</button><button class="btn" data-a="stopinv">Stop invite links</button></div>' : '') +
         (boss ? '<div class="row-btns"><button class="btn" data-a="code">' + (code ? 'Show join code' : 'New join code') + '</button><button class="btn" data-a="tname">Rename team</button></div>' : '<p class="hint">For the join code or changes, ask the owner or an admin.</p>') +
         '<div class="actions"><button class="btn danger" data-a="leave">Leave team</button><span class="spacer"></span><button class="btn primary" data-a="ok">Done</button></div>',
       function (el, close) {
@@ -226,6 +230,13 @@
               api('POST', 'teams/' + tid + '/code').then(function (x) { GC.settings.cloud.codes = Object.assign({}, cfg().codes); GC.settings.cloud.codes[tid] = x.code; GC.saveSettings(); showCode(r.team, x.code); }, function (er) { GC.toast(er.message, 'err'); });
             });
           }
+          else if (act === 'invite') { close(); invite(r.team); }
+          else if (act === 'stopinv') {
+            close(); GC.confirm('Stop all invite links for “' + r.team.name + '”?', 'Links already sent stop working. People who joined stay in the team.', 'Stop links', true).then(function (y) {
+              if (!y) { manage(tid); return; }
+              api('DELETE', 'teams/' + tid + '/invite').then(function () { GC.toast('Invite links stopped.'); manage(tid); }, function (er) { GC.toast(er.message, 'err'); manage(tid); });
+            });
+          }
           else if (act === 'tname') { close(); GC.prompt('Team name', r.team.name, 'Name', 'Rename').then(function (n) { if (!n) { manage(tid); return; } api('POST', 'teams/' + tid, { name: n }).then(function (x) { updateTeam(x.team); manage(tid); }, function (er) { GC.toast(er.message, 'err'); }); }); }
           else if (act === 'leave') {
             close(); GC.confirm('Leave “' + r.team.name + '”?', 'You lose access to its team workspace on all your devices. Copies already on this device stay here.', 'Leave team', true).then(function (y) {
@@ -241,6 +252,62 @@
       });
     }, function (e) { GC.busy(null); GC.toast(e.message, 'err'); });
   }
+  // ---------- invite links: open the link, sign in, you are in the team ----------
+  function appUrl() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
+  /** Makes an invite link (owner/admin) and offers to share or copy it. */
+  function invite(t) {
+    api('POST', 'teams/' + t.id + '/invite').then(function (x) {
+      var link = appUrl() + '#invite=' + x.token, until = new Date(x.expires).toLocaleDateString('en-AU', { day: 'numeric', month: 'long' });
+      var text = 'Join our GeoCanvas team “' + t.name + '”: ' + link;
+      GC.modal('<h2>Invite people to “' + esc(t.name) + '”</h2><p class="sub">Send this link. Whoever opens it signs in (or creates an account) and joins the team: no code to type.</p>' +
+        '<div class="tm-code inv-link"><input type="text" id="inv-link" readonly value="' + esc(link) + '"><button class="btn" data-a="copy">Copy</button>' + (navigator.share ? '<button class="btn primary" data-a="share">Share…</button>' : '') + '</div>' +
+        '<p class="hint">Anyone with the link can join until ' + esc(until) + '. Share it only with your team; Manage › Stop invite links cancels every link.</p>' +
+        '<div class="actions"><button class="btn primary" data-a="ok">Done</button></div>',
+      function (el, close) {
+        el.querySelector('[data-a=ok]').onclick = function () { close(); manage(t.id); };
+        el.querySelector('#inv-link').onclick = function () { this.select(); };
+        el.querySelector('[data-a=copy]').onclick = function () { (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(function () { GC.toast('Invite link copied.'); }, function () { el.querySelector('#inv-link').select(); GC.toast('Select the link and copy it.'); }); };
+        if (el.querySelector('[data-a=share]')) el.querySelector('[data-a=share]').onclick = function () { navigator.share({ title: 'GeoCanvas team invite', text: text, url: link }).catch(function () {}); };
+      });
+    }, function (e) { GC.toast(e.message, 'err'); });
+  }
+  /** The invite link this device was opened with, kept until it is used (it survives signing up and app updates). */
+  function pendingInvite(v) {
+    try { if (v === undefined) return localStorage.getItem('gc.invite'); if (v) localStorage.setItem('gc.invite', v); else localStorage.removeItem('gc.invite'); } catch (e) { /* private mode */ }
+    return null;
+  }
+  /** Opened from an invite link: say which team, then sign in (or confirm, when already signed in) and join. */
+  function acceptInvite() {
+    var token = pendingInvite(); if (!token) return;
+    api('GET', 'invite/' + token).then(function (x) {
+      var inv = { token: token, team: x.team.name, by: x.by };
+      if (!cfg().session) { signInScreen(null, inv); return; }
+      var mine = (cfg().teams || []).filter(function (t) { return t.name === inv.team; })[0];
+      GC.confirm('Join “' + inv.team + '”?', (inv.by ? inv.by + ' invited you. ' : '') + 'You are signed in as ' + ((cfg().user || {}).name || 'you') + '. The team workspace opens straight away.', 'Join team').then(function (y) {
+        if (!y) { pendingInvite(null); return; }
+        api('POST', 'teams/join', { invite: token }).then(function (r) {
+          pendingInvite(null);
+          var teams = GC.settings.cloud.teams = (cfg().teams || []).filter(function (t) { return t.id !== r.team.id; }).concat([r.team]);
+          GC.settings.cloud.team = teams.filter(function (t) { return t.id === r.team.id; })[0]; GC.saveSettings(); GC.cloud.refresh();
+          GC.toast((mine ? 'You are already in “' : 'Welcome to “') + r.team.name + '”. This is the team workspace: everyone’s changes appear here live.', null, 7000);
+          if (GC.workspace) GC.workspace.onJoin();
+        }, function (e) { GC.toast(e.message, 'err', 8000); });
+      });
+    }, function (e) { if (!e.offline) pendingInvite(null); GC.toast(e.offline ? 'Open the invite link again once you are online.' : e.message, 'err', 8000); });
+  }
+  /** Takes an invite link's token from the address (the link's secret then leaves the address bar). */
+  function inviteFromUrl() {
+    var m = /[#&]invite=([0-9a-f]{16,64})/i.exec(location.hash || '');
+    if (!m) return false;
+    pendingInvite(m[1].toLowerCase());
+    try { localStorage.setItem('gc.welcomed', '1'); } catch (e) { /* ignore */ } // the invite is the welcome
+    if (history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+    return true;
+  }
+  inviteFromUrl();
+  (function ready() { if (GC.project && GC.cloud) setTimeout(acceptInvite, 400); else setTimeout(ready, 200); })();
+  global.addEventListener('hashchange', function () { if (inviteFromUrl() && GC.project) acceptInvite(); }); // a link opened in a tab that already has the app
+
   function updateTeam(t) {
     GC.settings.cloud.teams = (cfg().teams || []).map(function (x) { return x.id === t.id ? Object.assign({}, x, { name: t.name }) : x; });
     if (cfg().team && cfg().team.id === t.id) GC.settings.cloud.team = Object.assign({}, cfg().team, { name: t.name });
@@ -275,5 +342,5 @@
   }
 
   if ($('btn-cloud')) $('btn-cloud').onclick = open;
-  GC.account = { open: open, signIn: signInScreen, forget: forget, deviceGuess: deviceGuess };
+  GC.account = { open: open, signIn: signInScreen, forget: forget, deviceGuess: deviceGuess, invite: invite, acceptInvite: acceptInvite };
 })(window);
