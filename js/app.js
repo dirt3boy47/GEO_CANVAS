@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-29.16' };
+  var GC = global.GC = { $: $, VERSION: '2026-10-30.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -381,9 +381,9 @@
         for (var k = 0; k < n; k++) { var q = Geo.merc(a[2 * k], a[2 * k + 1]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
         return m;
       };
-      this._lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, m: merc(ln.p, b), b: b }; });
-      this._fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
-      this._texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7] }; });
+      this._lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, ly: ln.ly, m: merc(ln.p, b), b: b }; });
+      this._fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, ly: f.ly, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
+      this._texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7], ly: t[8] != null ? t[8] : -1 }; });
     },
     _draw: function () {
       var map = this._map; if (!map) return;
@@ -395,6 +395,7 @@
       var ws = 256 * Math.pow(2, map.getZoom()), o = map.getPixelOrigin(), ox = o.x + tl.x, oy = o.y + tl.y;
       var vb = [ox / ws, oy / ws, (ox + w) / ws, (oy + h) / ws], colors = l.cad.colors, mono = l.mono;
       x.lineWidth = 1.4; x.lineJoin = 'round'; x.lineCap = 'round';
+      var names = l.cad.layers || [], hide = l.cadOff || {}, gone = function (ly) { return ly >= 0 && hide[names[ly]]; }; // DXF layers switched off
       var off = function (b) { return b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]; };
       var tiny = 0.6 / ws; // smaller than ~half a pixel at this zoom: not worth drawing
       // a path through screen points, skipping points less than ~¾ pixel from the last one drawn (level of detail)
@@ -405,7 +406,7 @@
       };
       if (l.hideFills !== true && this._fills.length) { // hatches under the linework: solid fills half-strength, patterns as a light tint
         var fBy = {};
-        this._fills.forEach(function (f) { if (off(f.b) || (f.b[2] - f.b[0] < tiny && f.b[3] - f.b[1] < tiny)) return; var k = f.c + ':' + (f.s ? 1 : 0); (fBy[k] = fBy[k] || []).push(f); });
+        this._fills.forEach(function (f) { if (gone(f.ly) || off(f.b) || (f.b[2] - f.b[0] < tiny && f.b[3] - f.b[1] < tiny)) return; var k = f.c + ':' + (f.s ? 1 : 0); (fBy[k] = fBy[k] || []).push(f); });
         Object.keys(fBy).forEach(function (k) {
           var parts = k.split(':'); x.fillStyle = mono || colors[parts[0]]; x.globalAlpha = parts[1] === '1' ? 0.5 : 0.14; x.beginPath();
           fBy[k].forEach(function (f) { f.r.forEach(function (m) { trace(m, true); }); });
@@ -414,7 +415,7 @@
         x.globalAlpha = 1;
       }
       var byColor = {};
-      this._lines.forEach(function (ln) { if (off(ln.b) || (ln.b[2] - ln.b[0] < tiny && ln.b[3] - ln.b[1] < tiny)) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
+      this._lines.forEach(function (ln) { if (gone(ln.ly) || off(ln.b) || (ln.b[2] - ln.b[0] < tiny && ln.b[3] - ln.b[1] < tiny)) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
       Object.keys(byColor).forEach(function (ci) {
         x.strokeStyle = mono || colors[ci]; x.beginPath();
         byColor[ci].forEach(function (ln) { trace(ln.m, false); });
@@ -423,7 +424,7 @@
       if (l.showText === false || !this._texts.length) return;
       var mpp = Geo.metersPerPixel(map.getZoom(), map.getCenter().lat);
       this._texts.forEach(function (t) {
-        var px = t.h / mpp; if (px < 5 || px > 600) return;
+        var px = t.h / mpp; if (px < 5 || px > 600 || gone(t.ly)) return;
         var sx = t.m[0] * ws - ox, sy = t.m[1] * ws - oy; if (sx < -500 || sy < -500 || sx > w + 500 || sy > h + 500) return;
         var rows = t.s.split('\n'); x.save(); x.translate(sx, sy); x.rotate(-t.r * Math.PI / 180);
         x.font = px.toFixed(1) + 'px -apple-system, Helvetica, Arial, sans-serif'; x.fillStyle = mono || colors[t.c];
@@ -444,7 +445,7 @@
       var src = GC.mymaps && GC.mymaps.get(l.ref);
       if (!src) return;
       if (src.kind === 'geopdf' || src.kind === 'raster') v.group.addLayer(new GC.MapPieces(src, { pane: v.pn })); // from this device or streamed from the cloud
-      else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono, hideFills: l.hideFills }), { pane: v.pn }));
+      else if (src.kind === 'cad') v.group.addLayer(new GC.CadLayer(Object.assign({}, src, { showText: l.showText != null ? l.showText : src.showText, mono: l.mono, hideFills: l.hideFills, cadOff: l.cadOff }), { pane: v.pn }));
       return;
     }
     if (l.kind === 'vector') {
@@ -535,7 +536,7 @@
     if (l.kind === 'track') { var d = 0, pts = 0; (l.tracks || []).forEach(function (t) { d += t.distance || 0; pts += t.points.length; }); return (l.tracks || []).length + ' track' + ((l.tracks || []).length === 1 ? '' : 's') + ' · ' + GC.fmtDist(d); }
     if (l.kind === 'waypoints' && l.photoPts && GC.camera) { var wn = (l.waypoints || []).length, ws = l.waypoints.filter(function (w) { return GC.camera.shown(l, w); }).length; return wn + (wn === 1 ? ' photo point' : ' photo points') + (ws < wn ? ' · ' + ws + ' shown' : ''); }
     if (l.kind === 'waypoints') return (l.waypoints || []).length + ' waypoints';
-    if (l.kind === 'cad') { var cn = GC.cad ? GC.cad.counts(l.cad) : { lines: (l.cad.lines || []).length, fills: 0 }; return 'reference drawing · ' + cn.lines.toLocaleString() + ' lines' + (cn.fills ? ' · ' + cn.fills.toLocaleString() + ' hatches' : ''); }
+    if (l.kind === 'cad') { var cn = GC.cad ? GC.cad.counts(l.cad) : { lines: (l.cad.lines || []).length, fills: 0 }; var nOff = Object.keys(l.cadOff || {}).length; return 'reference drawing · ' + cn.lines.toLocaleString() + ' lines' + (cn.fills ? ' · ' + cn.fills.toLocaleString() + ' hatches' : '') + (nOff && l.cad.layers ? ' · ' + nOff + ' of ' + l.cad.layers.length + ' layers off' : ''); }
     if (l.kind === 'service') return 'online map · ' + l.service.source;
     if (l.kind === 'geopdf') return 'map sheet · ' + l.crs;
     if (l.kind === 'libmap') { var s1 = GC.mymaps && GC.mymaps.get(l.ref); return s1 ? 'My maps' + (s1.folder ? ' › ' + s1.folder.replace(/\//g, ' › ') : '') : (GC.mymaps && GC.mymaps.all().length ? 'missing from My maps' : 'loading from My maps…'); }
@@ -803,6 +804,33 @@
   $('proj-notes').oninput = function () { GC.project.notes = $('proj-notes').value; GC.markDirty(); };
 
   /** Layer options sheet: rename, opacity, style, order, duplicate, export, CRS, delete. */
+  /** "Drawing layers" in a CAD drawing's options: each DXF layer with its colour, size and an on/off switch. */
+  function cadLayersHtml(cad, l) {
+    if (!cad || !cad.layers) return '<div class="cam-lbl">Drawing layers</div><p class="hint" style="margin:0 6px 8px">This drawing was imported before its layers were kept. Delete it and import the DXF again to switch its layers on and off.</p>';
+    var off = l.cadOff || {}, order = cad.layers.map(function (n, i) { return i; }).sort(function (a, b) { return cad.layers[a].localeCompare(cad.layers[b], undefined, { numeric: true }); });
+    var nOff = cad.layers.filter(function (n) { return off[n]; }).length;
+    return '<div class="cam-lbl">Drawing layers <small id="cl-sum">' + cad.layers.length + (nOff ? ' · ' + nOff + ' off' : '') + '</small></div>' +
+      '<div class="cad-tools"><input type="search" id="cl-q" placeholder="Find a layer…" autocomplete="off"><button class="btn" id="cl-all">All on</button><button class="btn" id="cl-none">All off</button></div>' +
+      '<div class="cad-list" id="cl-list">' + order.map(function (i) {
+        var n = cad.layers[i];
+        return '<label class="cad-ly" data-n="' + GC.esc(n.toLowerCase()) + '"><input type="checkbox" data-ly="' + i + '"' + (off[n] ? '' : ' checked') + '><i style="background:' + GC.esc((cad.layerColors || [])[i] || '#ffffff') + '"></i><span>' + GC.esc(n) + '</span><small>' + ((cad.layerCounts || [])[i] || 0).toLocaleString() + '</small></label>';
+      }).join('') + '</div>';
+  }
+  function bindCadLayers(el, cad, l, redraw) {
+    var list = el.querySelector('#cl-list'); if (!list) return;
+    var sum = function () { var n = Object.keys(l.cadOff || {}).length; el.querySelector('#cl-sum').textContent = cad.layers.length + (n ? ' · ' + n + ' off' : ''); };
+    var set = function (boxes, on) {
+      var o = Object.assign({}, l.cadOff);
+      boxes.forEach(function (b) { var n = cad.layers[+b.getAttribute('data-ly')]; b.checked = on; if (on) delete o[n]; else o[n] = 1; });
+      if (Object.keys(o).length) l.cadOff = o; else delete l.cadOff;
+      sum(); redraw();
+    };
+    list.addEventListener('change', function (e) { if (e.target.hasAttribute('data-ly')) set([e.target], e.target.checked); });
+    var shown = function () { return [].filter.call(list.querySelectorAll('input[data-ly]'), function (b) { return b.closest('.cad-ly').style.display !== 'none'; }); };
+    el.querySelector('#cl-q').oninput = function () { var q = this.value.trim().toLowerCase(); [].forEach.call(list.children, function (r) { r.style.display = !q || r.getAttribute('data-n').indexOf(q) >= 0 ? '' : 'none'; }); };
+    el.querySelector('#cl-all').onclick = function () { set(shown(), true); };
+    el.querySelector('#cl-none').onclick = function () { set(shown(), false); };
+  }
   GC.layerOptions = function (l) {
     var p = GC.project, idx = p.layers.indexOf(l), isVec = l.kind === 'vector';
     var fields = [];
@@ -823,7 +851,7 @@
     } else if (l.kind === 'raster') {
       html += GC.lookHtml(l) + (l.rms != null ? '<p class="hint">Georeferenced on ' + (l.gcps || []).length + ' points, overall error ' + (l.rms < 1 ? (l.rms * 100).toFixed(0) + ' cm' : l.rms.toFixed(2) + ' m') + '.</p>' : '');
     } else if (l.kind === 'cad') {
-      html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+      html += cadLayersHtml(l.cad, l) + '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
         '<label class="opt"><input type="checkbox" id="lo-fills"' + (l.hideFills ? '' : ' checked') + '> Show hatch fills</label>' +
         '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>' +
         (l.crs ? '<p class="hint">Placed from ' + GC.esc(Geo.crsLabel(l.crs)) + ' coordinates.</p>' : '');
@@ -837,7 +865,7 @@
       if (!src) html += '<p class="hint">This map is not in My maps (it was deleted, or My maps has not loaded yet).</p>';
       else {
         if (src.kind !== 'cad') html += GC.lookHtml(l);
-        else html += '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
+        else html += cadLayersHtml(src.cad, l) + '<label class="opt"><input type="checkbox" id="lo-text"' + (l.showText !== false ? ' checked' : '') + '> Show the drawing’s text</label>' +
           '<label class="opt"><input type="checkbox" id="lo-fills"' + (l.hideFills ? '' : ' checked') + '> Show hatch fills</label>' +
           '<label class="opt"><input type="checkbox" id="lo-mono"' + (l.mono ? ' checked' : '') + '> Draw everything in one colour <input type="color" id="lo-monoc" value="' + (l.mono || '#ffeb3b') + '" style="vertical-align:middle;margin-left:6px"></label>';
         if (GC.mymaps.hosted(src)) html += '<p class="hint">' + (GC.mymaps.isHere(src) ? '📱 Downloaded on this device: works offline.' : '☁ Shown from the cloud (needs internet). Download it in My maps to use it offline.') + '</p>';
@@ -901,7 +929,9 @@
       if (l.kind === 'service' && GC.library) GC.library.bindOptions(l, el);
       if (q('.lo-look')) GC.bindLook(l, el);
       if (q('#lo-text')) {
-        var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };
+        var cadRedraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(true); };
+        var cadSrc = l.kind === 'cad' ? l.cad : (GC.mymaps && GC.mymaps.get(l.ref) || {}).cad;
+        if (cadSrc && cadSrc.layers) bindCadLayers(el, cadSrc, l, cadRedraw);
         q('#lo-text').onchange = function () { l.showText = q('#lo-text').checked; cadRedraw(); };
         if (q('#lo-fills')) q('#lo-fills').onchange = function () { if (q('#lo-fills').checked) delete l.hideFills; else l.hideFills = true; cadRedraw(); };
         q('#lo-mono').onchange = function () { if (q('#lo-mono').checked) l.mono = q('#lo-monoc').value; else delete l.mono; cadRedraw(); };

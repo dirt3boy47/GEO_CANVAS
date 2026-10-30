@@ -782,3 +782,14 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
 .ac-mem select { width: auto; margin: 0; padding: 6px 8px; }
 .ac-pair { font: 700 44px/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em; text-align: center; padding: 18px; border-radius: 16px; background: var(--chip); margin: 10px 0; }
 .ac-teams .item, .ac-devs .item, .ac-mem .item { cursor: default; }
+/* CAD drawing layers (layer options) */
+.cad-tools { display: flex; gap: 6px; margin: 0 6px 6px; }
+#modal .cad-tools input[type=search] { flex: 1; min-width: 0; margin: 0; }
+.cad-tools .btn { padding: 7px 10px; font-size: 13px; flex: none; }
+.cad-list { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; margin: 0 6px 10px; -webkit-overflow-scrolling: touch; }
+.cad-ly { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13.5px; }
+.cad-ly:last-child { border-bottom: 0; }
+.cad-ly input { width: 18px; height: 18px; margin: 0; flex: none; }
+.cad-ly i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; }
+.cad-ly span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-ly small { color: var(--muted); font-variant-numeric: tabular-nums; }

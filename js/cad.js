@@ -70,7 +70,7 @@
 
   /** Turns parsed entities into world-coordinate polylines and texts (drawing units). */
   function geometry(d) {
-    var lines = [], texts = [], fills = [], skipped = {}, vcount = 0, truncated = false;
+    var lines = [], texts = [], fills = [], skipped = {}, vcount = 0, truncated = false, curLayer = '0'; // the DXF layer of the entity being drawn
     var layerOf = function (e, ctx) { var l = g(e, 8) || '0'; return l === '0' && ctx.layer ? ctx.layer : l; };
     var colorOf = function (e, ctx, layer) {
       var tc = g(e, 420); if (tc != null) return trueColor(+tc);
@@ -86,7 +86,7 @@
       pts.forEach(function (p) { a.push(m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]); });
       if (closed) a.push(a[0], a[1]);
       vcount += a.length / 2; if (vcount > MAX_VERTICES) { truncated = true; return; }
-      lines.push({ c: color, p: a });
+      lines.push({ c: color, p: a, ly: curLayer });
     };
     /** A filled area (hatch, MPOLYGON): rings of points, drawn even-odd. solid: a solid fill (else a pattern, shown as a tint). */
     var fill = function (m, rings, color, solid) {
@@ -98,7 +98,7 @@
         vcount += a.length / 2; rs.push(a);
       });
       if (vcount > MAX_VERTICES) { truncated = true; return; }
-      if (rs.length) fills.push({ c: color, s: !!solid, r: rs });
+      if (rs.length) fills.push({ c: color, s: !!solid, r: rs, ly: curLayer });
     };
     var arcPts = function (cx, cy, r, a0, a1) { // radians, counter-clockwise
       while (a1 <= a0) a1 += 2 * Math.PI;
@@ -127,7 +127,7 @@
       s = String(s || '').trim(); if (!s || !h) return;
       var p = [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]], sc = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
       var dir = Math.atan2(m[1] * Math.cos(rot) + m[3] * Math.sin(rot), m[0] * Math.cos(rot) + m[2] * Math.sin(rot));
-      texts.push({ c: color, x: p[0], y: p[1], h: h * sc, r: dir * 180 / Math.PI, ax: ax, ay: ay, s: s });
+      texts.push({ c: color, x: p[0], y: p[1], h: h * sc, r: dir * 180 / Math.PI, ax: ax, ay: ay, s: s, ly: curLayer });
     };
     var mtext = function (s) {
       return s.replace(/\\P/g, '\n').replace(/\\U\+([0-9a-f]{4})/gi, function (x, h) { return String.fromCharCode(parseInt(h, 16)); })
@@ -191,6 +191,7 @@
         var e = ents[k], t = e.type;
         if (g(e, 67) === '1') continue; // paper space
         var layer = layerOf(e, ctx); if (hidden(layer)) continue;
+        curLayer = layer;
         var color = colorOf(e, ctx, layer), mo = mul(m, ocs(e));
         switch (t) {
           case 'LINE': poly(m, [[num(e, 10), num(e, 20)], [num(e, 11), num(e, 21)]], color); break;
@@ -273,7 +274,7 @@
     };
     Object.keys(d.blocks).forEach(function (k) { d.blocks[k].ents = group(d.blocks[k].ents); });
     draw(group(d.entities), I, {}, 0);
-    return { lines: lines, texts: texts, fills: fills, skipped: skipped, truncated: truncated, points: vcount };
+    return { lines: lines, texts: texts, fills: fills, skipped: skipped, truncated: truncated, points: vcount, layerColors: Object.keys(d.layers).reduce(function (o, k) { o[k] = d.layers[k].color; return o; }, {}) };
   }
   /** B-spline (with weights) from control points and knots; fit points when there are no control points. */
   function spline(e) {
@@ -338,25 +339,31 @@
     var out = { lines: [], fills: [] };
     if (cad.data != null) {
       var d = new Dec(cad.data), rd = function (n) { var a = new Float64Array(n * 2); for (var k = 0; k < n; k++) { d.x += d.s(); d.y += d.s(); a[2 * k] = d.x / 1e7; a[2 * k + 1] = d.y / 1e7; } return a; };
-      for (var li = 0; li < (cad.n || 0); li++) { var c = d.u(), n = d.u(); out.lines.push({ c: c, p: rd(n) }); }
+      var st = cad.styles, sty = function (k) { return st ? { c: st[k][0], ly: st[k][1] } : { c: k, ly: -1 }; }; // v3 keeps the DXF layer
+      for (var li = 0; li < (cad.n || 0); li++) { var s0 = sty(d.u()), n = d.u(); out.lines.push({ c: s0.c, ly: s0.ly, p: rd(n) }); }
       d = new Dec(cad.fillData); // fills: their own stream
-      for (var fi = 0; fi < (cad.nf || 0); fi++) { var fc = d.u(), fs = d.u(), nr = d.u(), rs = []; for (var ri = 0; ri < nr; ri++) rs.push(rd(d.u())); out.fills.push({ c: fc, s: !!fs, r: rs }); }
-    } else (cad.lines || []).forEach(function (a) { out.lines.push({ c: a[0], p: Float64Array.from(a.slice(1)) }); });
+      for (var fi = 0; fi < (cad.nf || 0); fi++) { var s1 = sty(d.u()), fs = d.u(), nr = d.u(), rs = []; for (var ri = 0; ri < nr; ri++) rs.push(rd(d.u())); out.fills.push({ c: s1.c, ly: s1.ly, s: !!fs, r: rs }); }
+    } else (cad.lines || []).forEach(function (a) { out.lines.push({ c: a[0], ly: -1, p: Float64Array.from(a.slice(1)) }); });
     decoded.set(cad, out);
     return out;
   }
   function counts(cad) { return { lines: cad.n != null ? cad.n : (cad.lines || []).length, fills: cad.nf || 0, texts: (cad.texts || []).length }; }
   function build(name, geo, toLL, unit) {
     var colors = [], ci = {}, cidx = function (c) { if (!(c in ci)) { ci[c] = colors.length; colors.push(c); } return ci[c]; };
+    // DXF layers: names, colours and how much each holds; every line/fill/text points at a style = [colour, layer]
+    var layers = [], li = {}, lcount = [], lidx = function (n) { n = n || '0'; if (!(n in li)) { li[n] = layers.length; layers.push(n); lcount.push(0); } lcount[li[n]]++; return li[n]; };
+    var styles = [], si = {}, sidx = function (c, ly) { var a = cidx(c), b = lidx(ly), k = a + ':' + b; if (!(k in si)) { si[k] = styles.length; styles.push([a, b]); } return si[k]; };
     var r7 = function (v) { return Math.round(v * 1e7) / 1e7; }, bb = L.latLngBounds([]);
     var le = new Enc(), fe = new Enc();
     var put = function (enc, p) { enc.u(p.length / 2); for (var k = 0; k < p.length; k += 2) { var ll = toLL(p[k], p[k + 1]); enc.pt(ll[0], ll[1]); bb.extend([ll[1], ll[0]]); } };
-    geo.lines.forEach(function (l) { le.u(cidx(l.c)); put(le, l.p); });
-    (geo.fills || []).forEach(function (f) { fe.u(cidx(f.c)); fe.u(f.s ? 1 : 0); fe.u(f.r.length); f.r.forEach(function (p) { put(fe, p); }); });
-    var texts = geo.texts.map(function (t) { var ll = toLL(t.x, t.y); bb.extend([ll[1], ll[0]]); return [cidx(t.c), r7(ll[0]), r7(ll[1]), Math.round(t.h * unit * 1000) / 1000, Math.round(t.r * 10) / 10, t.ax, t.ay, t.s]; });
+    geo.lines.forEach(function (l) { le.u(sidx(l.c, l.ly)); put(le, l.p); });
+    (geo.fills || []).forEach(function (f) { fe.u(sidx(f.c, f.ly)); fe.u(f.s ? 1 : 0); fe.u(f.r.length); f.r.forEach(function (p) { put(fe, p); }); });
+    var texts = geo.texts.map(function (t) { var ll = toLL(t.x, t.y); bb.extend([ll[1], ll[0]]); return [cidx(t.c), r7(ll[0]), r7(ll[1]), Math.round(t.h * unit * 1000) / 1000, Math.round(t.r * 10) / 10, t.ax, t.ay, t.s, lidx(t.ly)]; });
     if (!bb.isValid()) throw new Error('The drawing has no linework in model space.');
+    var lcol = geo.layerColors || {};
     return { id: Ink.uid(), name: name, kind: 'cad', visible: true, opacity: 1, locked: true, format: 'DXF', showText: true,
-      cad: { v: 2, colors: colors, n: geo.lines.length, data: le.str(), nf: (geo.fills || []).length, fillData: fe.str(), points: geo.points, texts: texts },
+      cad: { v: 3, colors: colors, styles: styles, layers: layers, layerColors: layers.map(function (n) { return lcol[n] || '#ffffff'; }), layerCounts: lcount,
+        n: geo.lines.length, data: le.str(), nf: (geo.fills || []).length, fillData: fe.str(), points: geo.points, texts: texts },
       bounds: [[bb.getSouth(), bb.getWest()], [bb.getNorth(), bb.getEast()]], warnings: [], created: Date.now() };
   }
   /** Local-coordinate drawings become an image, placed with the georeferencer like any plan. */
@@ -416,7 +423,9 @@
     GC.project.layers.forEach(function (l) {
       if (l.kind !== 'cad' || !l.visible) return;
       var S = view.getSouth(), N = view.getNorth(), W = view.getWest(), E = view.getEast();
+      var names = l.cad.layers || [], off = l.cadOff || {};
       decode(l.cad).lines.forEach(function (ln) {
+        if (ln.ly >= 0 && off[names[ln.ly]]) return; // switched off in the drawing's layers
         var a = ln.p;
         for (var k = 0; k < a.length; k += 2) {
           if (a[k + 1] < S || a[k + 1] > N || a[k] < W || a[k] > E) continue;

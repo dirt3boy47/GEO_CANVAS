@@ -262,7 +262,7 @@
       if (l.kind === 'service') { l.libRef = r.map.id; GC.markDirty(l.id); GC.refreshLayers(); return r.map; }
       var p = GC.project, i = p.layers.indexOf(l);
       var ref = { id: global.Ink.uid(), name: l.name, kind: 'libmap', ref: r.map.id, visible: l.visible, opacity: l.opacity, locked: true, blend: !!l.blend, created: Date.now() };
-      if (l.kind === 'cad') { ref.showText = l.showText; ref.mono = l.mono; ref.hideFills = l.hideFills; }
+      if (l.kind === 'cad') { ref.showText = l.showText; ref.mono = l.mono; ref.hideFills = l.hideFills; ref.cadOff = l.cadOff; }
       GC.removeLayer(l.id);
       p.layers.splice(Math.min(i, p.layers.length), 0, ref);
       GC.renderLayer(ref); GC.applyLayerState(); GC.markDirty(ref.id); GC.refreshLayers();
