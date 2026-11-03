@@ -341,7 +341,7 @@
       target: f.geometry, at: f.geometry && f.geometry.type === 'Point' ? f.geometry.coordinates : [tapAt.lng, tapAt.lat], highlight: f, zoom: GC.folderBounds(l, idx),
       photos: idx < 0 ? null : { refs: refs, onChange: function (left) { l.featPhotos = l.featPhotos || {}; if (left.length) l.featPhotos[idx] = left; else delete l.featPhotos[idx]; GC.markDirty(l.id); GC.refreshLayers(); } },
       note: idx < 0 ? null : { text: (l.featNotes && l.featNotes[idx]) || '', save: function (t) { l.featNotes = l.featNotes || {}; if (t) l.featNotes[idx] = t; else delete l.featNotes[idx]; GC.markDirty(l.id); } },
-      more: [{ label: 'Hide this feature', fn: function () { GC.closeInspector(); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); } }],
+      more: [{ label: 'Hide this feature', fn: function () { GC.closeInspector(); l.hiddenFeats = l.hiddenFeats || {}; l.hiddenFeats[idx] = 1; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(); } }].concat(GC.parcels && f.geometry && /LineString/.test(f.geometry.type) ? [{ label: 'Parcels along this line', fn: function () { GC.closeInspector(); GC.parcels.forLine(name, f.geometry); } }] : []),
       onClose: function () { if (GC.selFeat && GC.selFeat.lid === l.id && GC.selFeat.idx === idx) GC.selFeat = null; if (row) row.classList.remove('sel'); }
     });
     if (html) resolveKmz(l, html).then(function (h) { body.querySelector('.gb-html').appendChild(htmlFrame(h, maxW, c.refit)); });
@@ -387,6 +387,7 @@
       var g = target && target.type !== 'Point' ? JSON.parse(JSON.stringify(target)) : null, pt = at || (target && target.type === 'Point' ? target.coordinates : null);
       GC.closeInspector(); GC.camera.newAction(g ? { geom: g } : { at: pt || [anchor.lng, anchor.lat] });
     } });
+    if (GC.parcels && target && target.type === 'LineString') more.push({ label: 'Parcels along this line', fn: function () { GC.closeInspector(); GC.parcels.forLine(title.toLowerCase(), target); } });
     if (!l.locked) more.push({ label: 'Delete', danger: true, fn: function () { GC.closeInspector(); GC.editLayer(l.id, function (items) { return items.filter(function (x) { return x.id !== el.id; }); }); GC.toast('Deleted. Undo is available.'); } });
     var first = function (g) { var c = g.coordinates; while (typeof c[0] !== 'number') c = c[0]; return L.latLng(c[1], c[0]); };
     var anchor = at ? L.latLng(at[1], at[0]) : (tapLL || first(target));
@@ -397,6 +398,7 @@
     var dur = t.points.length > 1 ? (t.points[t.points.length - 1][2] - t.points[0][2]) / 1000 : 0, g = { type: 'LineString', coordinates: t.points.map(function (p) { return [p[0], p[1]]; }) };
     var anchor = tapLL || L.latLng(t.points[0][1], t.points[0][0]);
     GC.card.open({ ll: anchor, title: t.name, sub: l.name + ' · GPS track', target: g, highlight: g, zoom: GC.card.boundsOf(g),
+      more: GC.parcels && g.coordinates.length > 1 ? [{ label: 'Parcels along this track', fn: function () { GC.closeInspector(); GC.parcels.forLine(t.name, g); } }] : [],
       body: rowsHtml([['Distance', GC.fmtDist(t.distance || 0)], ['Points', String(t.points.length)], ['Started', GC.fmtTime(t.points[0] ? t.points[0][2] : Date.now())], ['Duration', Math.floor(dur / 3600) + ' h ' + Math.round(dur / 60) % 60 + ' min']]) });
   };
   GC.inspectWaypoint = function (l, w) {
@@ -412,13 +414,13 @@
       target: shape || null, highlight: w.geom || null,
       photos: { refs: w.photos || [], onChange: l.locked ? null : function (refs) { if (refs.length) w.photos = refs; else delete w.photos; GC.renderLayer(l); GC.markDirty(l.id); } },
       note: l.locked ? null : { text: w.note || '', save: function (t) { w.note = t; GC.renderLayer(l); GC.markDirty(l.id); } },
-      more: l.locked ? [] : (w.sketch ? [{ label: 'Edit drawing', fn: function () { GC.camera.sketch({ l: l, w: w }); } }] : w.geom ? [] : [
+      more: (GC.parcels && w.geom && w.geom.type === 'LineString' ? [{ label: 'Parcels along this line', fn: function () { GC.closeInspector(); GC.parcels.forLine(w.name || 'the action line', w.geom); } }] : []).concat(l.locked ? [] : (w.sketch ? [{ label: 'Edit drawing', fn: function () { GC.camera.sketch({ l: l, w: w }); } }] : w.geom ? [] : [
         { label: 'Move pin', fn: function () {
           GC.closeInspector(); GC.toast('Tap the map where “' + (w.name || 'the waypoint') + '” should be.', null, 8000);
           GC.placeOnce = function (p) { w.lat = Math.round(p.lat * 1e7) / 1e7; w.lon = Math.round(p.lng * 1e7) / 1e7; w.acc = null; w.moved = true; GC.renderLayer(l); GC.markDirty(l.id); GC.toast('Moved.'); GC.inspectWaypoint(l, w); };
         } }]).concat(l.locked ? [] : [
         { label: 'Rename', fn: function () { GC.prompt('Rename', w.name || '', 'Name', 'Rename').then(function (n) { if (!n) return; w.name = n; GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.inspectWaypoint(l, w); }); } },
-        { label: 'Delete', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }]) });
+        { label: 'Delete', danger: true, fn: function () { l.waypoints = l.waypoints.filter(function (x) { return x !== w; }); GC.renderLayer(l); GC.markDirty(l.id); GC.refreshLayers(true); GC.closeInspector(); } }])) });
   };
 
   // ======================= GPS =======================

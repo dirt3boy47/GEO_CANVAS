@@ -199,5 +199,6 @@
   if (on()) setOn(true);
 
   GC.cadastre = { on: on, setOn: setOn, identify: identify, find: find, snap: snap, esriToGeoJSON: esriToGeoJSON, BASE: BASE,
+    query: query, prop: prop, lotplan: lotplan, title: title, rings: rings, areaOf: areaOf, showParcel: showParcel,
     tiles: tiles, tileUrl: function (c) { return tiles.getTileUrl(c); } }; // offline maps save these tiles
 })(window);

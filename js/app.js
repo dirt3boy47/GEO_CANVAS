@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-11-03.1' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-03.2' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -991,7 +991,9 @@
       html += '<label class="custom" style="margin:8px 6px">Layer colour <input type="color" id="lo-color" value="' + (l.color || '#1e63d6') + '"></label>';
     }
     if (l.warnings && l.warnings.length) html += '<div class="warn" style="margin:8px 6px">' + l.warnings.map(GC.esc).join('<br>') + '</div>';
+    var cadSrc = l.kind === 'cad' ? l : l.kind === 'libmap' && GC.mymaps ? GC.mymaps.get(l.ref) : null;
     html += '<div class="row-btns">' +
+      (GC.parcels && cadSrc && cadSrc.kind === 'cad' ? '<button class="btn primary" data-a="parcels">Parcels along the alignment…</button>' : '') +
       '<button class="btn" data-a="zoom">Zoom to layer</button>' +
       '<button class="btn" data-a="up"' + (idx === p.layers.length - 1 ? ' disabled' : '') + '>Move up</button>' +
       '<button class="btn" data-a="down"' + (idx === 0 ? ' disabled' : '') + '>Move down</button>' +
@@ -1028,6 +1030,7 @@
       }
       el.querySelector('[data-a=done]').onclick = function () { q('#lo-name').onchange(); close(); };
       el.querySelector('[data-a=zoom]').onclick = function () { close(); GC.zoomToLayer(l); };
+      if (q('[data-a=parcels]')) q('[data-a=parcels]').onclick = function () { close(); GC.parcels.forCad(l); };
       var move = function (d) { var i = p.layers.indexOf(l), j = i + d; if (j < 0 || j >= p.layers.length) return; p.layers.splice(i, 1); p.layers.splice(j, 0, l); normFolders(); GC.applyLayerState(); GC.markDirty(); GC.refreshLayers(); close(); GC.layerOptions(l); };
       el.querySelector('[data-a=up]').onclick = function () { move(1); };
       el.querySelector('[data-a=down]').onclick = function () { move(-1); };

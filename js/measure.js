@@ -79,6 +79,7 @@
     if (M.action) $('ms-hint').textContent += ' Then Create action.';
     $('ms-undo').disabled = !M.pts.length; $('ms-clear').disabled = !M.pts.length;
     $('ms-save').disabled = $('ms-action').disabled = M.mode === 'area' ? M.pts.length < 3 : M.pts.length < 2;
+    $('ms-parcels').hidden = !!M.action || M.mode !== 'line'; $('ms-parcels').disabled = M.pts.length < 2;
     $('ms-save').hidden = !!M.action; $('ms-title').textContent = M.action ? (M.mode === 'area' ? 'Draw the action area' : 'Draw the action line') : 'Measure';
     Array.prototype.forEach.call($('ms-mode').children, function (b) { b.classList.toggle('on', b.getAttribute('data-m') === M.mode); });
     $('ms-free').checked = M.free;
@@ -192,6 +193,7 @@
     M.mode = mode === 'line' ? 'line' : 'area'; M.action = true; open();
     GC.toast(M.mode === 'area' ? 'Tap the corners of the area (or trace it with the Pencil), then Create action.' : 'Tap along the line (or trace it with the Pencil), then Create action.', null, 6000);
   }
+  $('ms-parcels').onclick = function () { var c = coords(); if (c.length < 2 || !GC.parcels) return; close(); GC.parcels.forLine('the measured line', { type: 'LineString', coordinates: c }); };
   $('ms-action').onclick = function () {
     var c = coords(), area = M.mode === 'area';
     if (c.length < (area ? 3 : 2)) return;

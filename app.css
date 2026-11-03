@@ -822,3 +822,20 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 .fold-pick .item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .fold-pick input { width: 20px; height: 20px; flex: none; }
 .fold-pick small { display: block; color: var(--muted); }
+
+/* ---------- Parcels along an alignment (js/parcels.js) ---------- */
+.pa-sum { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.pa-chip { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 10px; background: var(--chip); font-size: 13px; }
+.pa-chip i, .pa-row i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.pa-chip span { color: var(--muted); }
+.pa-list { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+.pa-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pa-row:last-child { border-bottom: 0; }
+.pa-row .grow { flex: 1; min-width: 0; }
+.pa-row small { display: block; color: var(--muted); font-size: 12px; }
+.pa-row .pa-len { text-align: right; flex: none; max-width: 48%; }
+.pa-row.gap { cursor: default; }
+.pa-dxf { max-height: 30vh; overflow: auto; margin-bottom: 8px; }
+.pa-dxf .item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.pa-dxf input { width: 20px; height: 20px; flex: none; }
+.pa-dxf small { display: block; color: var(--muted); }
