@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-10-30.3' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-03.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -660,8 +660,13 @@
       p.layers.forEach(function (l) { var el = list.querySelector('.layer[data-id="' + l.id + '"] > .lrow .lsub'); if (el) el.textContent = layerSub(l); });
       return;
     }
+    if (normFolders()) GC.applyLayerState();
+    var heads = {};
     list.innerHTML = p.layers.slice().reverse().map(function (l) {
-      var cls = 'layer' + (l.id === p.activeLayer ? ' active' : '') + (l.visible ? '' : ' hidden-layer');
+      var fo = l.folder, pre = '';
+      if (fo && !heads[fo]) { heads[fo] = 1; pre = folderHead(fo); }
+      if (fo && !GC.isOpen('fold:' + fo, true)) return pre;
+      var cls = 'layer' + (fo ? ' in-folder' : '') + (l.id === p.activeLayer ? ' active' : '') + (l.visible ? '' : ' hidden-layer');
       var sw = l.kind === 'vector' ? ((l.style && l.style.color) || '#ff9800') : (l.color || '#888');
       var tree = l.kind === 'vector', open = tree && GC.isOpen(l.id, false);
       var h = '<li class="' + cls + '" data-id="' + l.id + '"><div class="lrow"><span class="grip" title="Drag to reorder">' + ICON('grip') + '</span>' +
@@ -672,7 +677,7 @@
         '<button class="ib" data-act="more" title="Layer options">' + ICON('more') + '</button>' +
         '<button class="ib eye" data-act="vis" title="' + (l.visible ? 'Hide' : 'Show') + '">' + ICON(l.visible ? 'eye' : 'eyeoff') + '</button></div>';
       if (open) { var rows = []; treeRows(l, GC.layerTree(l), 0, !l.visible, rows, ''); h += '<ul class="tree">' + rows.join('') + '</ul>'; }
-      return h + '</li>';
+      return pre + h + '</li>';
     }).join('');
     $('layer-count').textContent = p.layers.length + (p.layers.length === 1 ? ' layer' : ' layers');
     var dl = GC.drawingLayers(), opts = dl.slice().reverse().map(function (l) { return '<option value="' + l.id + '">' + GC.esc(l.name) + (l.locked ? ' (locked)' : '') + '</option>'; }).join('');
@@ -680,6 +685,73 @@
     $('active-layer').value = p.activeLayer || '__new';
     $('sel-layer').innerHTML = '<option value="">Move to layer…</option>' + opts;
   };
+  // ---------- layer folders: l.folder names the folder a layer is in (it syncs with the layer); open/closed is per device ----------
+  function inFolder(fo) { return GC.project.layers.filter(function (l) { return l.folder === fo; }); }
+  GC.layerFolders = function () { var seen = {}, out = []; GC.project.layers.slice().reverse().forEach(function (l) { if (l.folder && !seen[l.folder]) { seen[l.folder] = 1; out.push(l.folder); } }); return out; };
+  /** Keeps each folder's layers together in the drawing order (where its top layer is). True when the order changed. */
+  function normFolders() {
+    var ls = GC.project.layers, top = ls.slice().reverse(), out = [], done = {};
+    top.forEach(function (l) { if (!l.folder) { out.push(l); return; } if (done[l.folder]) return; done[l.folder] = 1; top.forEach(function (x) { if (x.folder === l.folder) out.push(x); }); });
+    out.reverse();
+    if (out.every(function (l, i) { return l === ls[i]; })) return false;
+    ls.splice.apply(ls, [0, ls.length].concat(out)); return true;
+  }
+  GC.normFolders = normFolders;
+  function folderHead(fo) {
+    var ls = inFolder(fo), open = GC.isOpen('fold:' + fo, true), on = ls.filter(function (l) { return l.visible; }).length;
+    return '<li class="layer folder-head' + (on ? '' : ' hidden-layer') + '" data-folder="' + GC.esc(fo) + '"><div class="lrow"><span class="grip" title="Drag to move the folder">' + ICON('grip') + '</span>' +
+      '<button class="tw' + (open ? ' open' : '') + '" data-act="ftw" title="' + (open ? 'Collapse' : 'Expand') + '">' + ICON('caret') + '</button>' +
+      '<svg class="fold-ic"><use xlink:href="#i-' + (open ? 'folder-open' : 'folder') + '"/></svg>' +
+      '<div class="ltext" data-act="ftw"><div class="lname">' + GC.esc(fo) + '</div><div class="lsub">Folder · ' + ls.length + (ls.length === 1 ? ' layer' : ' layers') + (on < ls.length ? ' · ' + (ls.length - on) + ' hidden' : '') + '</div></div>' +
+      '<button class="ib" data-act="fmore" title="Folder options">' + ICON('more') + '</button>' +
+      '<button class="ib eye" data-act="fvis" title="' + (on ? 'Hide all' : 'Show all') + '">' + ICON(on ? 'eye' : 'eyeoff') + '</button></div></li>';
+  }
+  /** Puts layers in a folder (or takes them out, folder ''), keeping the folder together. */
+  GC.setFolder = function (layers, fo) {
+    layers.forEach(function (l) { if (fo) l.folder = fo; else delete l.folder; GC.markDirty(l.id); });
+    normFolders(); GC.applyLayerState(); GC.markDirty(); GC.refreshLayers();
+  };
+  function newFolder(preset) {
+    GC.prompt('New folder', '', 'e.g. CAD drawings', 'Next').then(function (name) {
+      name = (name || '').trim(); if (!name) return;
+      if (GC.layerFolders().indexOf(name) >= 0) { GC.toast('There is already a folder called “' + name + '”: add layers to it from their ⋯.', 'warn'); return; }
+      pickLayers(name, preset);
+    });
+  }
+  /** Tick the layers that go in a folder. */
+  function pickLayers(fo, preset) {
+    var ls = GC.project.layers.slice().reverse();
+    GC.modal('<h2>Layers in “' + GC.esc(fo) + '”</h2><p class="sub">Tick the layers to put in this folder.</p><div class="list fold-pick">' +
+      ls.map(function (l) { var on = l.folder === fo || (preset && preset.indexOf(l) >= 0); return '<label class="item"><input type="checkbox" data-id="' + l.id + '"' + (on ? ' checked' : '') + '><div class="grow"><b>' + GC.esc(l.name) + '</b><small>' + GC.esc(GC.kindLabel(l) + (l.folder && l.folder !== fo ? ' · now in “' + l.folder + '”' : '')) + '</small></div></label>'; }).join('') +
+      '</div><div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Save</button></div>',
+    function (el, close) {
+      el.querySelector('[data-a=no]').onclick = close;
+      el.querySelector('[data-a=go]').onclick = function () {
+        var ins = [], outs = [];
+        [].forEach.call(el.querySelectorAll('input[data-id]'), function (c) { var l = GC.layerById(c.getAttribute('data-id')); if (c.checked && l.folder !== fo) ins.push(l); else if (!c.checked && l.folder === fo) outs.push(l); });
+        close();
+        if (outs.length) GC.setFolder(outs, '');
+        if (ins.length) { GC.setOpen('fold:' + fo, true); GC.setFolder(ins, fo); }
+        if (ins.length || outs.length) GC.toast(inFolder(fo).length ? '“' + fo + '”: ' + inFolder(fo).length + (inFolder(fo).length === 1 ? ' layer.' : ' layers.') : 'The folder is empty, so it is gone.');
+      };
+    });
+  }
+  function folderMenu(fo) {
+    GC.modal('<h2>' + GC.esc(fo) + '</h2><p class="sub">Folder · ' + inFolder(fo).length + ' layers</p><div class="pm-grid fold-menu">' +
+      '<button data-f="pick"><svg><use xlink:href="#i-layers"/></svg><span>Choose layers</span></button><button data-f="rename"><svg><use xlink:href="#i-ballpoint"/></svg><span>Rename</span></button>' +
+      '<button data-f="zoom"><svg><use xlink:href="#i-search"/></svg><span>Zoom to folder</span></button><button data-f="ungroup"><svg><use xlink:href="#i-folder-open"/></svg><span>Remove folder (keep layers)</span></button></div>' +
+      '<div class="actions"><button class="btn primary" data-a="ok">Done</button></div>',
+    function (el, close) {
+      el.querySelector('[data-a=ok]').onclick = close;
+      el.querySelector('.fold-menu').onclick = function (e) {
+        var b = e.target.closest('[data-f]'); if (!b) return; var f = b.getAttribute('data-f'); close();
+        if (f === 'pick') pickLayers(fo);
+        else if (f === 'rename') GC.prompt('Rename folder', fo, 'Name', 'Rename').then(function (n) { n = (n || '').trim(); if (!n || n === fo) return; var open = GC.isOpen('fold:' + fo, true); GC.setOpen('fold:' + n, open); GC.setFolder(inFolder(fo), n); });
+        else if (f === 'zoom') { var b2 = null; inFolder(fo).forEach(function (l) { var x = GC.layerBounds(l); if (x) b2 = b2 ? b2.extend(x) : L.latLngBounds(x.getSouthWest(), x.getNorthEast()); }); if (b2) zoomBounds(b2); else GC.toast('Nothing to zoom to.'); }
+        else if (f === 'ungroup') { var n2 = inFolder(fo).length; GC.setFolder(inFolder(fo), ''); GC.toast('Folder removed; its ' + n2 + ' layers are still here.'); }
+      };
+    });
+  }
   function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : ''); }
   var shownLimit = {}; // "layer:folder" → rows shown in very large folders
   var GEOM_ICON = { Point: 'gpt', MultiPoint: 'gpt', LineString: 'gline', MultiLineString: 'gline', Polygon: 'gpoly', MultiPolygon: 'gpoly' };
@@ -738,6 +810,14 @@
   var lastTap = { id: null, t: 0 };
   function doubleTap(id) { var now = Date.now(), d = lastTap.id === id && now - lastTap.t < 400; lastTap = d ? { id: null, t: 0 } : { id: id, t: now }; return d; }
   $('layer-list').addEventListener('click', function (e) {
+    var fh = e.target.closest('.folder-head');
+    if (fh) {
+      var fo = fh.getAttribute('data-folder'), fa = e.target.closest('[data-act]'), fact = fa && fa.getAttribute('data-act');
+      if (fact === 'fvis') { var ls = inFolder(fo), on = ls.some(function (l) { return l.visible; }); ls.forEach(function (l) { l.visible = !on; GC.markDirty(l.id); }); GC.applyLayerState(); GC.refreshLayers(); }
+      else if (fact === 'fmore') folderMenu(fo);
+      else if (!e.target.closest('.grip')) { GC.setOpen('fold:' + fo, !GC.isOpen('fold:' + fo, true)); GC.refreshLayers(); } // tap the folder: open / close it
+      return;
+    }
     var li = e.target.closest('.layer'); if (!li) return;
     var l = GC.layerById(li.getAttribute('data-id')); if (!l) return;
     var btn = e.target.closest('[data-act]'), act = btn && btn.getAttribute('data-act'), tn = e.target.closest('.tn');
@@ -766,31 +846,55 @@
     if (l.kind === 'drawing') { GC.project.activeLayer = l.id; GC.markDirty(); GC.refreshLayers(); }
     else if (l.kind === 'vector' && e.target.closest('.ltext')) { GC.setOpen(l.id, !GC.isOpen(l.id, false)); GC.refreshLayers(); }
   });
-  // Drag the ⠿ handle to reorder layers (the list shows the top layer first).
+  // Drag the ⠿ handle to reorder layers (the list shows the top layer first). A folder moves with all its layers;
+  // a layer dropped inside an open folder joins it, and one dragged out of its folder leaves it.
   $('layer-list').addEventListener('pointerdown', function (e) {
     var grip = e.target.closest('.grip'); if (!grip) return;
     e.preventDefault();
-    var li = grip.closest('.layer'), list = $('layer-list'), items = Array.prototype.slice.call(list.children), from = items.indexOf(li);
-    var tops = items.map(function (x) { var r = x.getBoundingClientRect(); return r.top + r.height / 2; }), y0 = e.clientY, to = from;
-    li.classList.add('dragging');
+    var li = grip.closest('.layer'), list = $('layer-list'), rows = Array.prototype.slice.call(list.children);
+    var fo = li.classList.contains('folder-head') ? li.getAttribute('data-folder') : null;
+    var unit = fo ? rows.filter(function (x) { return x === li || (x.classList.contains('in-folder') && (GC.layerById(x.getAttribute('data-id')) || {}).folder === fo); }) : [li];
+    var rest = rows.filter(function (x) { return unit.indexOf(x) < 0; });
+    var mid = function (x) { var r = x.getBoundingClientRect(); return r.top + r.height / 2; };
+    var tops = rest.map(mid), c0 = mid(li), y0 = e.clientY, to = rest.length, from = 0;
+    for (var k = 0; k < tops.length; k++) if (tops[k] < c0) from++;
+    to = from;
+    unit.forEach(function (x) { x.classList.add('dragging'); });
     try { grip.setPointerCapture(e.pointerId); } catch (er) { /* old Safari */ }
     var move = function (ev) {
-      var dy = ev.clientY - y0, c = tops[from] + dy;
-      li.style.transform = 'translateY(' + dy + 'px)';
-      to = 0; for (var i = 0; i < tops.length; i++) if (i !== from && tops[i] < c) to++; // final position = rows that end up above it
-      items.forEach(function (x, i) { x.classList.toggle('drop-above', i === to && to < from); x.classList.toggle('drop-below', i === to && to > from); });
+      var dy = ev.clientY - y0, c = c0 + dy;
+      unit.forEach(function (x) { x.style.transform = 'translateY(' + dy + 'px)'; });
+      to = 0; for (var i = 0; i < tops.length; i++) if (tops[i] < c) to++;
+      rest.forEach(function (x, i) { x.classList.toggle('drop-below', i === to - 1 && to !== from); x.classList.toggle('drop-above', to === 0 && i === 0 && to !== from); });
     };
     var up = function () {
       grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
-      li.classList.remove('dragging'); li.style.transform = '';
-      items.forEach(function (x) { x.classList.remove('drop-above', 'drop-below'); });
+      unit.forEach(function (x) { x.classList.remove('dragging'); x.style.transform = ''; });
+      rest.forEach(function (x) { x.classList.remove('drop-above', 'drop-below'); });
       if (to === from) return;
-      var ls = GC.project.layers, n = ls.length, l = ls.splice(n - 1 - from, 1)[0];
-      ls.splice(n - 1 - to, 0, l);
-      GC.applyLayerState(); GC.markDirty(); GC.refreshLayers();
+      var lay = function (x) { return GC.layerById(x.getAttribute('data-id')); };
+      var head = function (x) { return x && x.classList.contains('folder-head') ? x.getAttribute('data-folder') : null; };
+      var fOf = function (x) { if (!x) return null; if (head(x)) return head(x); var l = lay(x); return l && x.classList.contains('in-folder') ? l.folder : null; };
+      if (!fo) { // a single layer: which folder does it land in?
+        var l0 = lay(li), above = rest[to - 1], below = rest[to], hf = head(above), nf = null;
+        if (hf && GC.isOpen('fold:' + hf, true)) nf = hf;
+        else if (above && !hf && fOf(above) && fOf(above) === fOf(below)) nf = fOf(above);
+        else if (above && !hf && fOf(above) && fOf(above) === l0.folder) nf = l0.folder;
+        if ((nf || null) !== (l0.folder || null)) { if (nf) l0.folder = nf; else delete l0.folder; GC.markDirty(l0.id); }
+      }
+      var order = rest.slice(0, to).concat(unit, rest.slice(to)), out = [], seen = {};
+      order.forEach(function (x) {
+        var hfo = head(x);
+        if (hfo) { if (!GC.isOpen('fold:' + hfo, true)) GC.project.layers.slice().reverse().forEach(function (l) { if (l.folder === hfo && !seen[l.id]) { seen[l.id] = 1; out.push(l); } }); return; }
+        var l = lay(x); if (l && !seen[l.id]) { seen[l.id] = 1; out.push(l); }
+      });
+      GC.project.layers.slice().reverse().forEach(function (l) { if (!seen[l.id]) out.push(l); });
+      var ls = GC.project.layers; ls.splice.apply(ls, [0, ls.length].concat(out.reverse()));
+      normFolders(); GC.applyLayerState(); GC.markDirty(); GC.refreshLayers();
     };
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
   });
+  $('btn-add-folder').onclick = function () { newFolder(); };
   $('btn-add-layer').onclick = function () {
     GC.prompt('New drawing layer', 'Layer ' + (GC.drawingLayers().length + 1), 'Name', 'Create').then(function (name) {
       if (!name) return;
@@ -848,6 +952,7 @@
     if (l.crs) info.push('Source CRS: ' + Geo.crsLabel(l.crs) + (l.assumed ? ' (assumed)' : ''));
     var html = '<h2>Layer options</h2><p class="sub">' + GC.esc(info.join(' · ')) + '</p>' +
       '<label class="field">Name<input type="text" id="lo-name" value="' + GC.esc(l.name) + '"></label>' +
+      '<label class="field">Folder<select id="lo-folder"><option value="">No folder</option>' + GC.layerFolders().map(function (f) { return '<option' + (f === l.folder ? ' selected' : '') + '>' + GC.esc(f) + '</option>'; }).join('') + '<option value="__new">+ New folder…</option></select></label>' +
       '<label class="slider" style="margin:8px 6px">Opacity <output id="lo-opv">' + Math.round(l.opacity * 100) + '%</output><input type="range" id="lo-op" min="5" max="100" value="' + Math.round(l.opacity * 100) + '"></label>';
     if (isVec) {
       var st = l.style || {};
@@ -900,6 +1005,13 @@
     GC.modal(html, function (el, close) {
       var q = function (s) { return el.querySelector(s); };
       q('#lo-name').onchange = function () { var v = q('#lo-name').value.trim(); if (v) { l.name = v; GC.markDirty(l.id); GC.refreshLayers(); } };
+      q('#lo-folder').onchange = function () {
+        var v = q('#lo-folder').value;
+        if (v === '__new') { close(); newFolder([l]); return; }
+        if (v) GC.setOpen('fold:' + v, true);
+        GC.setFolder([l], v);
+        GC.toast(v ? '“' + l.name + '” is in “' + v + '”.' : '“' + l.name + '” is out of its folder.');
+      };
       q('#lo-op').oninput = function () { l.opacity = q('#lo-op').value / 100; q('#lo-opv').textContent = q('#lo-op').value + '%'; GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(true); };
       if (isVec) {
         l.style = l.style || {};
@@ -916,7 +1028,7 @@
       }
       el.querySelector('[data-a=done]').onclick = function () { q('#lo-name').onchange(); close(); };
       el.querySelector('[data-a=zoom]').onclick = function () { close(); GC.zoomToLayer(l); };
-      var move = function (d) { var i = p.layers.indexOf(l), j = i + d; if (j < 0 || j >= p.layers.length) return; p.layers.splice(i, 1); p.layers.splice(j, 0, l); GC.applyLayerState(); GC.markDirty(); GC.refreshLayers(); close(); GC.layerOptions(l); };
+      var move = function (d) { var i = p.layers.indexOf(l), j = i + d; if (j < 0 || j >= p.layers.length) return; p.layers.splice(i, 1); p.layers.splice(j, 0, l); normFolders(); GC.applyLayerState(); GC.markDirty(); GC.refreshLayers(); close(); GC.layerOptions(l); };
       el.querySelector('[data-a=up]').onclick = function () { move(1); };
       el.querySelector('[data-a=down]').onclick = function () { move(-1); };
       el.querySelector('[data-a=dup]').onclick = function () {

@@ -810,3 +810,15 @@ body.phone #sk-bar { top: calc(58px + var(--safe-t)); left: 8px; right: 8px; -we
 body.phone #sk-bar .sk-txt { flex: 1; }
 .rg-ph img.rg-ink, .pp-img img.pp-ink { object-fit: contain; background: #f3f1ea; }
 .inv-link input { flex: 1 1 220px; min-width: 0; font: 13px ui-monospace, Menlo, monospace; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; }
+
+/* ---------- layer folders (Layers panel) ---------- */
+.tab-head .link { white-space: nowrap; }
+#btn-add-folder { margin-right: 8px; }
+.layer.folder-head > .lrow { background: var(--chip); }
+.layer.folder-head .fold-ic { width: 22px; height: 22px; flex: none; margin: 0 6px 0 2px; color: var(--accent); }
+.layer.folder-head .lname { font-weight: 700; }
+.layer.in-folder > .lrow { margin-left: 18px; border-left: 2px solid var(--line); border-radius: 0 11px 11px 0; padding-left: 4px; }
+.fold-pick { max-height: 52vh; overflow: auto; }
+.fold-pick .item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.fold-pick input { width: 20px; height: 20px; flex: none; }
+.fold-pick small { display: block; color: var(--muted); }
