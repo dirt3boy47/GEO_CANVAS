@@ -89,7 +89,17 @@
     var t = new Tiles('', { pane: pane, tileSize: 256, maxZoom: 22, maxNativeZoom: l.service.maxNative, minZoom: 3, keepBuffer: 2, updateWhenZooming: false,
       attribution: esc(l.service.copyright || l.service.source) });
     t._gcService = l.service;
+    t.on('tileerror', function (e) { whyNot(l, e.tile && e.tile.src); });
     return t;
+  }
+  /** A map service's images did not load: ask the server why (once a minute at most) and say so. */
+  var told = {};
+  function whyNot(l, src) {
+    if (!src || navigator.onLine === false || Date.now() - (told[l.id] || 0) < 60000) return;
+    told[l.id] = Date.now();
+    var many = l.service.show && l.service.show.length > 40;
+    var say = function (why) { GC.toast('“' + l.name + '” did not draw: ' + why + (many ? ' ' + l.service.show.length + ' of its layers are switched on: switch some off, or ⋯ › Default layers.' : ' ⋯ › Default layers puts it back as published.'), 'warn', 10000); };
+    getJSON(src.replace(/&f=image$/, '')).then(function (d) { if (!d || !d.href) say('its server sent no map image.'); }, function (e) { say(/could not be reached|did not answer/.test(e.message) ? 'its server is not answering (it may be busy or down).' : 'its server says “' + e.message + '”.'); });
   }
   /** The project's visible service layers, as descriptors for Offline maps. */
   function visibleServices() {
@@ -135,6 +145,10 @@
   /** "Planning Scheme › Zones › Zone": a sublayer with the groups it sits in. */
   function pathOf(s, x) { var names = [x.name], p = x.parent, d = 0; while (p !== -1 && d++ < 8) { var q = byId(s, p); if (!q) break; names.unshift(q.name); p = q.parent; } return names.join(' › '); }
   function byId(s, id) { for (var i = 0; i < s.subs.length; i++) if (s.subs[i].id === id) return s.subs[i]; return null; }
+  /** The layers the server draws by itself: on by default, and so is every group they are in. */
+  function defaults(s) {
+    return s.subs.filter(function (x) { if (x.group || !x.on) return false; var p = x.parent, d = 0; while (p !== -1 && d++ < 10) { var g = byId(s, p); if (!g) break; if (!g.on) return false; p = g.parent; } return true; }).map(function (x) { return x.id; });
+  }
   function leaves(s) { return (s.subs || []).filter(function (x) { return !x.group && !x.raster; }); }
   var copyPick = null;
   function optionsHtml(l) {
@@ -143,7 +157,7 @@
     var many = s.subs.length > 8;
     return (s.about ? '<p class="hint">' + esc(s.about) + '</p>' : '') +
       (!s.image && s.subs.length ? '<div class="pop-title small">Layers in this map <small id="st-count"></small></div>' +
-        (many ? '<div class="st-tools"><input type="search" id="st-q" placeholder="Find a layer…" autocomplete="off"><button class="btn" id="st-on">On only</button><button class="btn" id="st-none">All off</button></div>' : '') +
+        '<div class="st-tools">' + (many ? '<input type="search" id="st-q" placeholder="Find a layer…" autocomplete="off"><button class="btn" id="st-on">On only</button><button class="btn" id="st-none">All off</button>' : '') + '<button class="btn" id="st-def" title="The layers the map shows as published">Default layers</button></div>' +
         '<div class="lib-subs st-tree" id="st-tree"></div>' : '') +
       (s.image ? '' : '<label class="opt"><input type="checkbox" id="lo-ident"' + (l.identify ? ' checked' : '') + '> Tap the map to see what’s here (zone, overlay, rock unit, tenement…)</label>') +
       (s.image || !leaves(s).length ? '' : '<div class="pop-title small">Copy features to a GIS layer</div><div class="lib-copy"><select id="lib-fl">' + leaves(s).map(function (x) { return '<option value="' + x.id + '"' + (shown.indexOf(x.id) >= 0 && !copyPick ? (copyPick = ' selected') : '') + '>' + esc(pathOf(s, x)) + '</option>'; }).join('') + '</select>' +
@@ -160,7 +174,7 @@
     var under = {}; // group id → its leaf ids
     var leavesOf = function (x) { if (under[x.id]) return under[x.id]; var r = []; (kids[x.id] || []).forEach(function (k) { if (k.group) r = r.concat(leavesOf(k)); else r.push(k.id); }); return (under[x.id] = r); };
     s.subs.forEach(function (x) { if (!x.group) leafSet[x.id] = 1; });
-    (s.show ? s.show : s.subs.filter(function (x) { return x.on && !x.group; }).map(function (x) { return x.id; })).forEach(function (id) { on[id] = 1; });
+    (s.show ? s.show : defaults(s)).forEach(function (id) { on[id] = 1; });
     var key = function (x) { return 'svc:' + s.url + ':' + x.id; };
     var node = function (x, d) {
       var g = x.group, open = g && GC.isOpen(key(x), d === 0 && roots.length < 6);
@@ -183,8 +197,9 @@
       Object.keys(leafSet).forEach(function (id) { tot++; if (on[id]) n++; });
       var cnt = el.querySelector('#st-count'); if (cnt) cnt.textContent = '· ' + n + ' of ' + tot + ' on';
     };
-    var apply = function () {
+    var apply = function (reset) {
       s.show = s.subs.filter(function (x) { return !x.group && on[x.id]; }).map(function (x) { return x.id; });
+      var def = defaults(s); if (reset || (s.show.length === def.length && s.show.every(function (id, i) { return id === def[i]; }))) s.show = null; // as published: let the server decide
       sync(); GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); legend(l, el.querySelector('#lo-legend'));
     };
     box.addEventListener('change', function (e) {
@@ -218,6 +233,7 @@
     if (q) q.oninput = filter;
     var bOn = el.querySelector('#st-on'); if (bOn) bOn.onclick = function () { onlyOn = !onlyOn; bOn.classList.toggle('primary', onlyOn); filter(); };
     var bNone = el.querySelector('#st-none'); if (bNone) bNone.onclick = function () { on = {}; apply(); if (onlyOn) filter(); };
+    var bDef = el.querySelector('#st-def'); if (bDef) bDef.onclick = function () { on = {}; defaults(s).forEach(function (id) { on[id] = 1; }); apply(true); filter(); GC.toast('Back to the layers “' + l.name + '” shows as published.'); };
     sync();
   }
   function bindOptions(l, el) {
