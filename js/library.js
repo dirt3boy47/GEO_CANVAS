@@ -1,6 +1,8 @@
 /* GeoCanvas web — Map library: browse and search the public map services of Geoscience Australia and the Queensland
    Government (geology, topography, mineral tenements…), add one to the project as a layer (with legend and tap-to-identify),
-   and save it for offline use with Offline maps. The catalogues are read live from the agencies' ArcGIS servers, so
+   and save it for offline use with Offline maps. Any other ArcGIS server works too: paste its address (a MapServer,
+   one of its layers, a FeatureServer, a folder or the whole server) into the search box. A service layer's features
+   in view can be copied into a GIS layer (tappable, offline, exportable). The catalogues are read live from the agencies' ArcGIS servers, so
    new maps appear by themselves. Services are licensed by their publishers (mostly CC BY 4.0); see each map's details. */
 (function (global) {
   'use strict';
@@ -56,6 +58,10 @@
     var sr = e.spatialReference || {}, w = sr.latestWkid || sr.wkid, a, b;
     if (WEB[w]) { a = L.CRS.EPSG3857.unproject(L.point(e.xmin, e.ymin)); b = L.CRS.EPSG3857.unproject(L.point(e.xmax, e.ymax)); }
     else if (w === 4326 || w === 4283 || w === 7844 || w === 4202) { a = L.latLng(e.ymin, e.xmin); b = L.latLng(e.ymax, e.xmax); }
+    else if (global.Geo && Geo.CRS[w]) { // a projected service (council maps are often in MGA): convert its corners
+      try { var p1 = Geo.toWGS84(w, [e.xmin, e.ymin]), p2 = Geo.toWGS84(w, [e.xmax, e.ymax]); a = L.latLng(p1[1], p1[0]); b = L.latLng(p2[1], p2[0]); } catch (er) { return null; }
+      if (!isFinite(a.lat) || !isFinite(b.lat)) return null;
+    }
     else return null;
     return [[+a.lat.toFixed(5), +a.lng.toFixed(5)], [+b.lat.toFixed(5), +b.lng.toFixed(5)]];
   }
@@ -63,7 +69,7 @@
   /** Builds the project layer for a service from its JSON description. */
   function layerFor(url, info, title) {
     var image = /\/ImageServer$/.test(url), z = webTiles(info);
-    var subs = (info.layers || []).slice(0, 300).map(function (s) { return { id: s.id, name: s.name, parent: s.parentLayerId == null ? -1 : s.parentLayerId, group: !!(s.subLayerIds && s.subLayerIds.length), on: s.defaultVisibility !== false }; });
+    var subs = (info.layers || []).slice(0, 300).map(function (s) { var o = { id: s.id, name: s.name, parent: s.parentLayerId == null ? -1 : s.parentLayerId, group: !!(s.subLayerIds && s.subLayerIds.length), on: s.defaultVisibility !== false }; if (s.type && !/feature/i.test(s.type)) o.raster = true; return o; });
     return { id: global.Ink.uid(), name: title || (info.documentInfo && info.documentInfo.Title) || info.mapName || pretty(url.replace(/\/(Map|Image)Server$/, '')),
       kind: 'service', visible: true, opacity: 0.75, locked: true, format: image ? 'Image service' : 'Map service',
       service: { url: url, image: image, tiled: z != null, maxNative: z != null ? z : EXPORT_MAX, show: null, subs: subs,
@@ -126,7 +132,10 @@
   }
 
   // ---------- legend and layer options ----------
+  function leaves(s) { return (s.subs || []).filter(function (x) { return !x.group && !x.raster; }); }
+  var copyPick = null;
   function optionsHtml(l) {
+    copyPick = null;
     var s = l.service, shown = s.show ? s.show : s.subs.filter(function (x) { return x.on && !x.group; }).map(function (x) { return x.id; });
     var depth = function (x) { var d = 0, p = x.parent; while (p !== -1 && d < 6) { var q = s.subs.filter(function (y) { return y.id === p; })[0]; if (!q) break; p = q.parent; d++; } return d; };
     var subs = s.image ? '' : s.subs.map(function (x) {
@@ -135,7 +144,9 @@
     }).join('');
     return (s.about ? '<p class="hint">' + esc(s.about) + '</p>' : '') +
       (subs ? '<div class="pop-title small">Layers in this map</div><div class="lib-subs">' + subs + '</div>' : '') +
-      (s.image ? '' : '<label class="opt"><input type="checkbox" id="lo-ident"' + (l.identify ? ' checked' : '') + '> Tap the map to see what’s here (rock unit, tenement…)</label>') +
+      (s.image ? '' : '<label class="opt"><input type="checkbox" id="lo-ident"' + (l.identify ? ' checked' : '') + '> Tap the map to see what’s here (zone, overlay, rock unit, tenement…)</label>') +
+      (s.image || !leaves(s).length ? '' : '<div class="pop-title small">Copy features to a GIS layer</div><div class="lib-copy"><select id="lib-fl">' + leaves(s).map(function (x) { return '<option value="' + x.id + '"' + (shown.indexOf(x.id) >= 0 && !copyPick ? (copyPick = ' selected') : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
+        '<button class="btn" id="lib-copy">Copy features in view</button></div><p class="hint">Makes a GIS layer of that layer’s features on screen now: tap them, use them offline, export them or run Parcels along.</p>') +
       '<div class="pop-title small">Legend</div><div id="lo-legend" class="lib-legend"><p class="hint">Loading…</p></div>' +
       '<p class="hint">Source: ' + esc(s.source) + (s.copyright ? ' · ' + esc(s.copyright) : '') + '<br><a href="' + esc(s.url) + '" target="_blank" rel="noopener">Service details</a></p>';
   }
@@ -148,6 +159,7 @@
       };
     });
     var id = el.querySelector('#lo-ident'); if (id) id.onchange = function () { l.identify = id.checked; GC.markDirty(l.id); };
+    var cp = el.querySelector('#lib-copy'); if (cp) cp.onclick = function () { var sub = +el.querySelector('#lib-fl').value; GC.closeModal(); copyFeatures(l, sub); };
     legend(l, el.querySelector('#lo-legend'));
   }
   function legend(l, box) {
@@ -163,12 +175,72 @@
     }, function () { box.innerHTML = '<p class="hint">The legend needs an internet connection.</p>'; });
   }
 
+  // ---------- a service layer's features → a GIS layer ----------
+  /** Esri JSON features (points, multipoints, polylines, polygons) → GeoJSON. */
+  function esriToGeoJSON(fs) {
+    var polys = GC.cadastre ? GC.cadastre.esriToGeoJSON : null;
+    return { type: 'FeatureCollection', features: (fs || []).map(function (f) {
+      var g = f.geometry || {}, geom = null;
+      if (g.x != null) geom = { type: 'Point', coordinates: [g.x, g.y] };
+      else if (g.points) geom = { type: 'MultiPoint', coordinates: g.points };
+      else if (g.paths) geom = g.paths.length === 1 ? { type: 'LineString', coordinates: g.paths[0] } : { type: 'MultiLineString', coordinates: g.paths };
+      else if (g.rings && polys) geom = polys([f]).features[0].geometry;
+      return { type: 'Feature', properties: f.attributes || {}, geometry: geom };
+    }).filter(function (f) { return f.geometry; }) };
+  }
+  function queryLayer(url, params) {
+    var qs = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&'), base = url + '/query?' + qs;
+    var viaJsonp = function () { return jsonp(base + '&f=json').then(function (d) { if (d.error) throw new Error(d.error.message || 'The query failed.'); var g = esriToGeoJSON(d.features); g.exceeded = !!d.exceededTransferLimit; return g; }); };
+    return fetch(base + '&f=geojson').then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (g) {
+      if (g.error || !g.features) throw new Error('no GeoJSON');
+      g.exceeded = !!(g.exceededTransferLimit || (g.properties && g.properties.exceededTransferLimit)); return g;
+    }).catch(viaJsonp);
+  }
+  var NAMEY = /^(name|label|title|zone|zone_name|zone_desc|description|desc|precinct|overlay|category|class|type)$/i;
+  /** Copies the features of one of a service's layers that are in view into a GIS layer of the project. */
+  function copyFeatures(l, subId) {
+    var s = l.service, sub = s.subs.filter(function (x) { return x.id === subId; })[0] || { name: 'Layer ' + subId }, b = map.getBounds();
+    GC.busy('Copying “' + sub.name + '”…');
+    return queryLayer(s.url + '/' + subId, { where: '1=1', geometry: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(function (v) { return v.toFixed(6); }).join(','), geometryType: 'esriGeometryEnvelope', inSR: 4326,
+      spatialRel: 'esriSpatialRelIntersects', outFields: '*', returnGeometry: true, outSR: 4326, geometryPrecision: 7 }).then(function (g) {
+      GC.busy(null);
+      var fs = (g.features || []).filter(function (f) { return f.geometry; });
+      if (!fs.length) { GC.toast('No features of “' + sub.name + '” in view. Move the map to where they are, or zoom out a little.', 'warn', 7000); return null; }
+      var keys = Object.keys(fs[0].properties || {}), lab = keys.filter(function (k) { return NAMEY.test(k); })[0] || keys.filter(function (k) { return typeof fs[0].properties[k] === 'string' && !/^(objectid|globalid|shape)/i.test(k); })[0] || null;
+      var nl = { id: global.Ink.uid(), name: sub.name + ' (' + l.name + ')', kind: 'vector', visible: true, opacity: 1, locked: true,
+        geojson: { type: 'FeatureCollection', features: fs.map(function (f) { return { type: 'Feature', properties: f.properties || {}, geometry: f.geometry }; }) }, crs: 4326, format: 'ArcGIS',
+        warnings: ['Copied from ' + s.source + ' (' + s.url + '/' + subId + ') on ' + new Date().toLocaleDateString('en-AU') + (s.copyright ? '. ' + s.copyright : '') + '.' + (g.exceeded ? ' The server returned only part of the features in view: zoom in and copy again for the rest.' : '')],
+        style: { color: '#ff6d00', width: 2, fillOpacity: 0.2, useFileStyle: true }, labelField: lab, created: Date.now() };
+      GC.insertLayer(nl, true);
+      GC.toast('Copied ' + fs.length + ' feature' + (fs.length === 1 ? '' : 's') + ' of “' + sub.name + '” into the layer “' + nl.name + '”.' + (g.exceeded ? ' The server sent only part of them: zoom in and copy again for the rest.' : ''), g.exceeded ? 'warn' : null, 8000);
+      return nl;
+    }, function (e) { GC.busy(null); GC.toast('Could not copy the features: ' + e.message, 'err', 8000); return null; });
+  }
+
+  // ---------- any ArcGIS server, by its address ----------
+  /** Reads a pasted ArcGIS address: { svc (MapServer/ImageServer url), sub (layer id) } or { rest (…/rest/services), path (folder) }. */
+  function parseUrl(text) {
+    var t = String(text || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
+    if (!/^https?:\/\/\S+\/rest\/services/i.test(t)) return null;
+    var rest = /^(.*?\/rest\/services)(?:\/|$)/i.exec(t)[1], tail = t.slice(rest.length).replace(/^\//, '');
+    var m = /^(.+?)\/(MapServer|ImageServer|FeatureServer)(?:\/(\d+))?(?:\/|$)/i.exec(tail);
+    if (m) return { svc: rest + '/' + m[1] + '/' + (/image/i.test(m[2]) ? 'ImageServer' : 'MapServer'), sub: m[3] != null ? +m[3] : null, feature: /feature/i.test(m[2]) };
+    return { rest: rest, path: tail };
+  }
+  function hostOf(url) { return (url.match(/^https?:\/\/([^/]+)/) || [])[1] || 'Map server'; }
+
   // ---------- the library: featured, browse, search ----------
   var target = '';
-  function addService(url, title) {
+  function addService(url, title, opt) {
     GC.busy('Adding the map…');
     return getJSON(url).then(function (info) {
       var l = layerFor(url, info, title);
+      if (opt && opt.sub != null) { // one layer of the service: just that layer (and what is under it, for a group)
+        var want = [opt.sub], grow = true;
+        while (grow) { grow = false; l.service.subs.forEach(function (x) { if (want.indexOf(x.parent) >= 0 && want.indexOf(x.id) < 0) { want.push(x.id); grow = true; } }); }
+        var lv = l.service.subs.filter(function (x) { return want.indexOf(x.id) >= 0 && !x.group; }).map(function (x) { return x.id; });
+        if (lv.length) l.service.show = lv;
+      }
       // saved in My maps (in the folder the library was opened from) and shown in this project
       return (GC.mymaps ? GC.mymaps.addMap(l, { folder: target }).then(function (r) { return r.layer; }) : Promise.resolve(GC.insertLayer(l, true)).then(function () { return l; })).then(function (pl) {
         GC.busy(null);
@@ -203,8 +275,8 @@
 
   function open(opts) {
     target = opts && opts.folder != null ? opts.folder : '';
-    GC.modal('<h2>Online maps</h2><p class="sub">Free maps from Geoscience Australia and the Queensland Government: geology, topography, tenements and more. <b>Add</b> saves the map in My maps' + (target ? ' › ' + esc(target.replace(/\//g, ' › ')) : '') + ' and shows it in this project.</p>' +
-      '<input type="search" id="lib-q" placeholder="Search maps, e.g. geology, topographic, groundwater, mineral" autocomplete="off">' +
+    GC.modal('<h2>Online maps</h2><p class="sub">Free maps from Geoscience Australia and the Queensland Government: geology, topography, tenements and more, or paste the address of any ArcGIS map server (a council’s planning scheme, for example). <b>Add</b> saves the map in My maps' + (target ? ' › ' + esc(target.replace(/\//g, ' › ')) : '') + ' and shows it in this project.</p>' +
+      '<input type="search" id="lib-q" placeholder="Search maps, or paste a map server address (…/MapServer)" autocomplete="off">' +
       '<div class="seg lib-tabs"><button data-t="featured" class="on">Featured</button><button data-t="ga">Geoscience Australia</button><button data-t="qld">Queensland</button></div>' +
       '<div id="lib-body" class="lib-body"></div>' +
       '<div class="actions"><button class="btn" data-a="back">‹ My maps</button><button class="btn primary" data-a="close">Done</button></div>',
@@ -218,11 +290,11 @@
         };
         var featured = function () { body.innerHTML = '<div class="list">' + FEATURED.map(function (f) { return row(f.url, f.title, f.note, inProject(f.url)); }).join('') + '</div>'; wire(); };
         var browse = function () {
-          var root = ROOTS.filter(function (r) { return r.id === tab; })[0];
+          var root = tab === 'url' ? other : ROOTS.filter(function (r) { return r.id === tab; })[0];
           body.innerHTML = '<p class="hint">Loading ' + esc(root.name) + '…</p>';
           getJSON(root.url + (path ? '/' + path : '')).then(function (d) {
             var crumbs = '<div class="lib-crumbs"><a data-folder="">' + esc(root.name) + '</a>' + (path ? ' › ' + esc(pretty(path)) : '') + '</div>';
-            var folders = path ? [] : (d.folders || []).filter(function (f) { return !/^(Utilities|System)$/i.test(f); });
+            var folders = (d.folders || []).filter(function (f) { return !/^(Utilities|System)$/i.test(f); });
             var svcs = (d.services || []).filter(function (s) { return s.type === 'MapServer' || s.type === 'ImageServer'; });
             body.innerHTML = crumbs + '<div class="list">' + folders.map(function (f) { return '<div class="lib-row lib-folder" data-folder="' + esc(f) + '"><div class="lib-txt"><b>' + esc(pretty(f)) + '</b><small>Folder</small></div><span class="lib-go">›</span></div>'; }).join('') +
               svcs.map(function (s) { var u = root.url + '/' + s.name + '/' + s.type; return row(u, pretty(s.name), (s.type === 'ImageServer' ? 'Image service' : 'Map service') + (path ? '' : ''), inProject(u)); }).join('') + '</div>' +
@@ -230,7 +302,29 @@
             wire();
           }, function (e) { body.innerHTML = '<p class="hint fail">' + esc(root.name) + ' could not be reached (' + esc(e.message) + '). The library needs an internet connection.</p>'; });
         };
+        var other = null; // another server, opened from a pasted address
+        var byUrl = function (u) {
+          if (u.svc) {
+            body.innerHTML = '<p class="hint">Opening ' + esc(hostOf(u.svc)) + '…</p>';
+            getJSON(u.svc).then(function (info) {
+              var sub = u.sub != null ? (info.layers || []).filter(function (x) { return x.id === u.sub; })[0] : null;
+              var title = (info.documentInfo && info.documentInfo.Title) || info.mapName || pretty(u.svc.replace(/\/(Map|Image)Server$/, ''));
+              var n = (info.layers || []).length, rid = 'u' + Math.random().toString(36).slice(2, 7);
+              body.innerHTML = '<div class="list">' + row(u.svc, sub ? sub.name + ' — ' + title : title, hostOf(u.svc) + ' · ' + (/ImageServer$/.test(u.svc) ? 'image service' : 'map service · ' + n + ' layer' + (n === 1 ? '' : 's')) + (sub ? ' · just this layer' : ''), inProject(u.svc) && !sub).replace('class="lib-row"', 'class="lib-row" id="' + rid + '"') + '</div>' +
+                (u.feature ? '<p class="hint">That was a feature service: its map service at the same address is used.</p>' : '') +
+                (strip(info.serviceDescription || info.description) ? '<p class="hint">' + esc(strip(info.serviceDescription || info.description).slice(0, 300)) + '</p>' : '');
+              var b = body.querySelector('#' + rid + ' [data-a=add]');
+              if (b) b.onclick = function () { b.disabled = true; b.textContent = 'Adding…'; addService(u.svc, sub ? sub.name + ' — ' + title : null, { sub: u.sub }).then(function () { b.textContent = 'Added'; b.classList.remove('primary'); }); };
+            }, function (e) { body.innerHTML = '<p class="hint fail">Could not open ' + esc(u.svc) + ' (' + esc(e.message) + '). Check the address, and that you are online.</p>'; });
+            return;
+          }
+          other = { id: 'url', name: hostOf(u.rest), url: u.rest }; tab = 'url'; path = u.path;
+          [].forEach.call(el.querySelectorAll('.lib-tabs button'), function (x) { x.classList.remove('on'); });
+          browse();
+        };
         var search = function (text) {
+          var pu = parseUrl(text); if (pu) { byUrl(pu); return; }
+          if (/^https?:/i.test(text)) { body.innerHTML = '<p class="hint">Paste the address of an ArcGIS map service, e.g. <code>https://…/arcgis/rest/services/…/MapServer</code> (a layer like …/MapServer/12, a folder or the whole …/rest/services works too).</p>'; return; }
           var words = text.toLowerCase().split(/\s+/).filter(Boolean);
           if (!words.length) { show(); return; }
           var match = function (s) { s = s.toLowerCase().replace(/_/g, ' '); return words.every(function (w) { return s.indexOf(w) >= 0; }); };
@@ -267,6 +361,6 @@
   }
 
   if ($('btn-library')) $('btn-library').onclick = function () { open(); };
-  GC.library = { open: open, add: addService, layerFor: layerFor, tileUrl: tileUrl, tileLayer: tileLayer, identify: identify, optionsHtml: optionsHtml, bindOptions: bindOptions,
+  GC.library = { open: open, add: addService, parseUrl: parseUrl, copyFeatures: copyFeatures, layerFor: layerFor, tileUrl: tileUrl, tileLayer: tileLayer, identify: identify, optionsHtml: optionsHtml, bindOptions: bindOptions,
     visibleServices: visibleServices, index: index, FEATURED: FEATURED, ROOTS: ROOTS };
 })(window);
