@@ -839,3 +839,19 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 .pa-dxf .item { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .pa-dxf input { width: 20px; height: 20px; flex: none; }
 .pa-dxf small { display: block; color: var(--muted); }
+
+/* ---------- a map service's layers as a tree (js/library.js) ---------- */
+.st-tools { display: flex; gap: 6px; margin: 0 6px 6px; flex-wrap: wrap; }
+.st-tools input { flex: 1 1 160px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; font: inherit; }
+.st-tree { max-height: 46vh; padding: 4px 0; }
+.st-row { display: flex; align-items: center; gap: 2px; padding: 1px 8px 1px calc(4px + var(--d) * 18px); min-height: 38px; }
+.st-row label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; padding: 5px 0; }
+.st-row label span { overflow-wrap: anywhere; }
+.st-row input { width: 19px; height: 19px; flex: none; accent-color: var(--accent); }
+.st-g > .st-row label span { font-weight: 650; }
+.st-n { color: var(--muted); font-size: 11.5px; white-space: nowrap; margin-left: 6px; }
+.st-tw, .st-sp { width: 26px; height: 30px; flex: none; }
+.st-tw { border: 0; background: none; color: var(--ink); padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.st-tw svg { width: 15px; height: 15px; -webkit-transition: transform .15s; transition: transform .15s; }
+.st-tw.open svg { -webkit-transform: rotate(90deg); transform: rotate(90deg); }
+.st-node[hidden], .st-kids[hidden] { display: none; }

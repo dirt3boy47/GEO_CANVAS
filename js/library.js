@@ -132,32 +132,97 @@
   }
 
   // ---------- legend and layer options ----------
+  /** "Planning Scheme › Zones › Zone": a sublayer with the groups it sits in. */
+  function pathOf(s, x) { var names = [x.name], p = x.parent, d = 0; while (p !== -1 && d++ < 8) { var q = byId(s, p); if (!q) break; names.unshift(q.name); p = q.parent; } return names.join(' › '); }
+  function byId(s, id) { for (var i = 0; i < s.subs.length; i++) if (s.subs[i].id === id) return s.subs[i]; return null; }
   function leaves(s) { return (s.subs || []).filter(function (x) { return !x.group && !x.raster; }); }
   var copyPick = null;
   function optionsHtml(l) {
     copyPick = null;
     var s = l.service, shown = s.show ? s.show : s.subs.filter(function (x) { return x.on && !x.group; }).map(function (x) { return x.id; });
-    var depth = function (x) { var d = 0, p = x.parent; while (p !== -1 && d < 6) { var q = s.subs.filter(function (y) { return y.id === p; })[0]; if (!q) break; p = q.parent; d++; } return d; };
-    var subs = s.image ? '' : s.subs.map(function (x) {
-      return x.group ? '<div class="lib-grp" style="padding-left:' + (depth(x) * 14) + 'px">' + esc(x.name) + '</div>' :
-        '<label class="opt lib-subl" style="padding-left:' + (depth(x) * 14 + 6) + 'px"><input type="checkbox" data-sub="' + x.id + '"' + (shown.indexOf(x.id) >= 0 ? ' checked' : '') + '> ' + esc(x.name) + '</label>';
-    }).join('');
+    var many = s.subs.length > 8;
     return (s.about ? '<p class="hint">' + esc(s.about) + '</p>' : '') +
-      (subs ? '<div class="pop-title small">Layers in this map</div><div class="lib-subs">' + subs + '</div>' : '') +
+      (!s.image && s.subs.length ? '<div class="pop-title small">Layers in this map <small id="st-count"></small></div>' +
+        (many ? '<div class="st-tools"><input type="search" id="st-q" placeholder="Find a layer…" autocomplete="off"><button class="btn" id="st-on">On only</button><button class="btn" id="st-none">All off</button></div>' : '') +
+        '<div class="lib-subs st-tree" id="st-tree"></div>' : '') +
       (s.image ? '' : '<label class="opt"><input type="checkbox" id="lo-ident"' + (l.identify ? ' checked' : '') + '> Tap the map to see what’s here (zone, overlay, rock unit, tenement…)</label>') +
-      (s.image || !leaves(s).length ? '' : '<div class="pop-title small">Copy features to a GIS layer</div><div class="lib-copy"><select id="lib-fl">' + leaves(s).map(function (x) { return '<option value="' + x.id + '"' + (shown.indexOf(x.id) >= 0 && !copyPick ? (copyPick = ' selected') : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
+      (s.image || !leaves(s).length ? '' : '<div class="pop-title small">Copy features to a GIS layer</div><div class="lib-copy"><select id="lib-fl">' + leaves(s).map(function (x) { return '<option value="' + x.id + '"' + (shown.indexOf(x.id) >= 0 && !copyPick ? (copyPick = ' selected') : '') + '>' + esc(pathOf(s, x)) + '</option>'; }).join('') + '</select>' +
         '<button class="btn" id="lib-copy">Copy features in view</button></div><p class="hint">Makes a GIS layer of that layer’s features on screen now: tap them, use them offline, export them or run Parcels along.</p>') +
       '<div class="pop-title small">Legend</div><div id="lo-legend" class="lib-legend"><p class="hint">Loading…</p></div>' +
       '<p class="hint">Source: ' + esc(s.source) + (s.copyright ? ' · ' + esc(s.copyright) : '') + '<br><a href="' + esc(s.url) + '" target="_blank" rel="noopener">Service details</a></p>';
   }
-  function bindOptions(l, el) {
-    var s = l.service, redraw = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); };
-    [].forEach.call(el.querySelectorAll('[data-sub]'), function (c) {
-      c.onchange = function () {
-        s.show = [].filter.call(el.querySelectorAll('[data-sub]'), function (x) { return x.checked; }).map(function (x) { return +x.getAttribute('data-sub'); });
-        redraw(); legend(l, el.querySelector('#lo-legend'));
-      };
+  /** The service's layers as a tree like ArcGIS's layer list: groups fold, a group's box switches everything in it. */
+  function tree(l, el) {
+    var s = l.service, box = el.querySelector('#st-tree'); if (!box) return;
+    var kids = {}, on = {}, leafSet = {};
+    s.subs.forEach(function (x) { (kids[x.parent] = kids[x.parent] || []).push(x); });
+    var roots = kids[-1] || s.subs.filter(function (x) { return !byId(s, x.parent); });
+    var under = {}; // group id → its leaf ids
+    var leavesOf = function (x) { if (under[x.id]) return under[x.id]; var r = []; (kids[x.id] || []).forEach(function (k) { if (k.group) r = r.concat(leavesOf(k)); else r.push(k.id); }); return (under[x.id] = r); };
+    s.subs.forEach(function (x) { if (!x.group) leafSet[x.id] = 1; });
+    (s.show ? s.show : s.subs.filter(function (x) { return x.on && !x.group; }).map(function (x) { return x.id; })).forEach(function (id) { on[id] = 1; });
+    var key = function (x) { return 'svc:' + s.url + ':' + x.id; };
+    var node = function (x, d) {
+      var g = x.group, open = g && GC.isOpen(key(x), d === 0 && roots.length < 6);
+      var h = '<div class="st-node' + (g ? ' st-g' : '') + '" data-id="' + x.id + '" data-d="' + d + '"><div class="st-row" style="--d:' + d + '">' +
+        (g ? '<button class="st-tw' + (open ? ' open' : '') + '" data-tw aria-label="Open or fold">' + GC.icon('caret') + '</button>' : '<span class="st-sp"></span>') +
+        '<label><input type="checkbox" data-sub="' + x.id + '"><span>' + esc(x.name) + '</span></label>' + (g ? '<small class="st-n"></small>' : '') + '</div>';
+      if (g) h += '<div class="st-kids"' + (open ? '' : ' hidden') + '>' + (kids[x.id] || []).map(function (k) { return node(k, d + 1); }).join('') + '</div>';
+      return h + '</div>';
+    };
+    box.innerHTML = roots.map(function (x) { return node(x, 0); }).join('');
+    var sync = function () {
+      var n = 0, tot = 0;
+      [].forEach.call(box.querySelectorAll('input[data-sub]'), function (c) {
+        var x = byId(s, +c.getAttribute('data-sub'));
+        if (!x.group) { c.checked = !!on[x.id]; c.indeterminate = false; return; }
+        var ls = leavesOf(x), k = ls.filter(function (id) { return on[id]; }).length;
+        c.checked = ls.length > 0 && k === ls.length; c.indeterminate = k > 0 && k < ls.length;
+        var sm = c.closest('.st-row').querySelector('.st-n'); if (sm) sm.textContent = k ? k + ' of ' + ls.length + ' on' : ls.length + ' layer' + (ls.length === 1 ? '' : 's');
+      });
+      Object.keys(leafSet).forEach(function (id) { tot++; if (on[id]) n++; });
+      var cnt = el.querySelector('#st-count'); if (cnt) cnt.textContent = '· ' + n + ' of ' + tot + ' on';
+    };
+    var apply = function () {
+      s.show = s.subs.filter(function (x) { return !x.group && on[x.id]; }).map(function (x) { return x.id; });
+      sync(); GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); legend(l, el.querySelector('#lo-legend'));
+    };
+    box.addEventListener('change', function (e) {
+      var c = e.target.closest('input[data-sub]'); if (!c) return;
+      var x = byId(s, +c.getAttribute('data-sub'));
+      if (x.group) { var ls = leavesOf(x), all = ls.every(function (id) { return on[id]; }); ls.forEach(function (id) { if (all) delete on[id]; else on[id] = 1; }); }
+      else if (c.checked) on[x.id] = 1; else delete on[x.id];
+      apply();
     });
+    box.addEventListener('click', function (e) {
+      var t = e.target.closest('[data-tw]'); if (!t) return;
+      var nd = t.closest('.st-node'), k = nd.querySelector(':scope > .st-kids'), x = byId(s, +nd.getAttribute('data-id')), open = k.hidden;
+      k.hidden = !open; t.classList.toggle('open', open); GC.setOpen(key(x), open);
+    });
+    var q = el.querySelector('#st-q'), onlyOn = false;
+    var filter = function () {
+      var t = q ? q.value.trim().toLowerCase() : '';
+      var walk = function (nd, pm) { // pm: a group above matched the search. → whether this node shows
+        var x = byId(s, +nd.getAttribute('data-id')), me = !!t && x.name.toLowerCase().indexOf(t) >= 0, kb = nd.querySelector(':scope > .st-kids'), any = false;
+        if (kb) [].forEach.call(kb.children, function (k) { if (walk(k, pm || me)) any = true; });
+        var show = !t && !onlyOn ? true : x.group ? any : (!t || me || pm) && (!onlyOn || !!on[x.id]);
+        nd.hidden = !show;
+        if (kb) {
+          var open = t || onlyOn ? any : GC.isOpen(key(x), +nd.getAttribute('data-d') === 0 && roots.length < 6);
+          kb.hidden = !open; nd.querySelector(':scope > .st-row [data-tw]').classList.toggle('open', open);
+        }
+        return show;
+      };
+      [].forEach.call(box.children, function (nd) { walk(nd, false); });
+    };
+    if (q) q.oninput = filter;
+    var bOn = el.querySelector('#st-on'); if (bOn) bOn.onclick = function () { onlyOn = !onlyOn; bOn.classList.toggle('primary', onlyOn); filter(); };
+    var bNone = el.querySelector('#st-none'); if (bNone) bNone.onclick = function () { on = {}; apply(); if (onlyOn) filter(); };
+    sync();
+  }
+  function bindOptions(l, el) {
+    var s = l.service;
+    tree(l, el);
     var id = el.querySelector('#lo-ident'); if (id) id.onchange = function () { l.identify = id.checked; GC.markDirty(l.id); };
     var cp = el.querySelector('#lib-copy'); if (cp) cp.onclick = function () { var sub = +el.querySelector('#lib-fl').value; GC.closeModal(); copyFeatures(l, sub); };
     legend(l, el.querySelector('#lo-legend'));
