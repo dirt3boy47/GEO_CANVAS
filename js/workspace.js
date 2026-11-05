@@ -216,11 +216,21 @@
   function openList() {
     GC.busy('Checking the team cloud…');
     Promise.all([GC.saveNow().then(Store.listProjects), GC.cloud.remoteList().then(null, function () { return null; }), GC.cloud.remoteList('me').then(null, function () { return null; })]).then(function (r) {
+      // private jobs deleted on your other device: a copy here with nothing new goes too; one with changes stays (and says so)
+      if (!r[2]) return r;
+      var ids = {}; r[2].forEach(function (x) { ids[x.id] = 1; });
+      var cand = r[0].filter(function (m) { return m.job && m.cloud && m.cloud.team === 'me' && !ids[m.id] && !(GC.project && GC.project.id === m.id); });
+      return Promise.all(cand.map(function (m) { return Store.loadProject(m.id).then(function (p) { return p && GC.cloud.unchanged(p) ? Store.deleteProject(m.id).then(function () { return m.id; }) : null; }, function () { return null; }); })).then(function (del) {
+        r[0] = r[0].filter(function (m) { return del.indexOf(m.id) < 0; }); return r;
+      });
+    }).then(function (r) {
       GC.busy(null);
       var local = r[0], remote = r[1] || [], mine = r[2] || [], ws = wsId(), cur = GC.project && GC.project.id;
+      var inMine = {}; mine.forEach(function (x) { inMine[x.id] = 1; });
+      var goneHere = function (m) { return !!r[2] && m.job && m.cloud && m.cloud.team === 'me' && !inMine[m.id]; }; // deleted on your other device
       var here = {}; local.forEach(function (m) { here[m.id] = 1; });
       var away = mine.filter(function (x) { return !here[x.id]; }); // private jobs on your other devices
-      var awayRow = function (x) { return '<div class="item" data-id="' + esc(x.id) + '" data-away="1"><div class="grow" data-a="openaway"><b>' + esc(x.name) + '</b><small>on your other device' + (x.device ? ' (' + esc(x.device) + ')' : '') + ' · edited ' + GC.fmtTime(x.modified) + ' · ☁ tap to open here</small></div></div>'; };
+      var awayRow = function (x) { return '<div class="item" data-id="' + esc(x.id) + '" data-away="1"><div class="grow" data-a="openaway"><b>' + esc(x.name) + '</b><small>on your other device' + (x.device ? ' (' + esc(x.device) + ')' : '') + ' · edited ' + GC.fmtTime(x.modified) + ' · ☁ tap to open here</small></div><button class="ib danger" data-a="delaway" title="Delete">' + GC.icon('trash') + '</button></div>'; };
       var myTeams = {}; ((GC.settings.cloud || {}).teams || []).forEach(function (t) { myTeams[t.id] = t.name; });
       var wsLocal = local.filter(function (m) { return m.id === ws; })[0], wsRemote = remote.filter(function (x) { return x.id === ws; })[0];
       var jobs = local.filter(function (m) { return m.job; }).sort(function (a, b) { return (b.modified || 0) - (a.modified || 0); });
@@ -233,7 +243,7 @@
         '<div class="ws-card' + (cur === ws ? ' current' : '') + '" data-ws><div class="ws-ic">☁</div><div class="grow"><b>' + esc(wsName) + '</b><small>Team workspace · live: everyone’s changes appear as they happen' + (wsT ? ' · edited ' + GC.fmtTime(wsT) + (wsRemote && wsRemote.device ? ' by ' + esc(wsRemote.device) : '') : '') + '</small></div><button class="btn primary" data-a="ws">' + (cur === ws ? 'Open' : 'Open') + '</button></div>' +
         '<div class="ws-head">My jobs <small>private · ' + (GC.cloud.signedIn() ? 'on all your devices, no one else’s' : 'on this device only') + ' · the team’s changes don’t come in</small></div><div class="list">' +
         (jobs.length ? jobs.map(function (m) {
-          return '<div class="item' + (m.id === cur ? ' current' : '') + '" data-id="' + esc(m.id) + '"><div class="grow" data-a="open"><b>' + esc(m.name) + '</b><small>' + (m.job.from ? 'from the team workspace · ' : '') + 'edited ' + GC.fmtTime(m.modified || m.created) + ' · ' + (m.job.sent ? 'sent to team ' + GC.fmtTime(m.job.sent) : 'not sent yet') + '</small></div>' +
+          return '<div class="item' + (m.id === cur ? ' current' : '') + '" data-id="' + esc(m.id) + '"><div class="grow" data-a="open"><b>' + esc(m.name) + '</b><small>' + (m.job.from ? 'from the team workspace · ' : '') + 'edited ' + GC.fmtTime(m.modified || m.created) + ' · ' + (m.job.sent ? 'sent to team ' + GC.fmtTime(m.job.sent) : 'not sent yet') + (goneHere(m) ? ' · <b class="ws-gone">deleted on your other device; this copy has changes</b>' : '') + '</small></div>' +
             '<button class="btn" data-a="send">Send to team</button><button class="ib" data-a="ren" title="Rename">' + GC.icon('text') + '</button><button class="ib danger" data-a="del" title="Delete">' + GC.icon('trash') + '</button></div>';
         }).join('') + away.map(awayRow).join('') : (away.length ? away.map(awayRow).join('') : '<p class="hint" style="margin:6px 2px">No private jobs yet. Start one to work offline on your own; send it to the team when it’s ready.' + (GC.cloud.signedIn() ? ' Your jobs follow you to your other devices.' : '') + '</p>')) + '</div>' +
         (older.length ? '<details class="ws-older"><summary>Older team projects (' + older.length + ')</summary><div class="list">' + older.map(function (x) {
@@ -259,12 +269,23 @@
           else if (act === 'copyin') { close(); copyIntoTeam(id); }
           else if (act === 'delold') { var o = older.filter(function (x) { return x.id === id; })[0]; close(); GC.deleteProject(o.here ? o.meta : { id: id, name: o.name, cloud: {}, remoteOnly: true }); }
           else if (act === 'ren') { close(); load(id).then(function (p) { GC.prompt('Rename job', p.name, 'Name', 'Rename').then(function (n) { if (!n) return; if (GC.project && GC.project.id === id) { GC.project.name = n; $('project-name').textContent = n; GC.markDirty(); } else { p.name = n; Store.saveProject(p, {}); } }); }); }
-          else if (act === 'del') {
+          else if (act === 'del' || act === 'delaway') {
+            var jm = jobs.filter(function (m) { return m.id === id; })[0], ja = away.filter(function (x) { return x.id === id; })[0], jname = (jm || ja || {}).name || 'this job';
+            var inCloud = GC.cloud.signedIn() && (!!ja || mine.some(function (x) { return x.id === id; }));
             close();
-            GC.confirm('Delete this private job?', 'It is only on this device and has not been shared since its last send. This cannot be undone.', 'Delete job', true).then(function (y) {
+            GC.confirm('Delete “' + jname + '”?', (inCloud ? 'Your private job is deleted on all your devices.' : 'Your private job is deleted from this device.') + ' Anything not sent to the team is lost (the team workspace is not changed). This cannot be undone.', 'Delete job', true).then(function (y) {
               if (!y) return;
               var after = GC.project && GC.project.id === id ? openTeam() : Promise.resolve();
-              after.then(function () { return Store.deleteProject(id); }).then(function () { GC.toast('Job deleted.'); });
+              after.then(function () {
+                var cloudDel = inCloud ? GC.cloud.deleteEverywhere(id, 'me').then(function () { return true; }, function () { return false; }) : Promise.resolve(true);
+                return cloudDel.then(function (ok) {
+                  return (jm ? Store.deleteProject(id) : Promise.resolve()).then(function () {
+                    if (ok) GC.toast('“' + jname + '” deleted' + (inCloud ? ' on all your devices.' : '.'));
+                    else GC.toast('“' + jname + '” was deleted here, but the cloud could not be reached: it is still on your other devices. Delete it again when you are online.', 'warn', 9000);
+                    openList();
+                  });
+                });
+              });
             });
           }
         });

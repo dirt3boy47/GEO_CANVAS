@@ -855,3 +855,4 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 .st-tw svg { width: 15px; height: 15px; -webkit-transition: transform .15s; transition: transform .15s; }
 .st-tw.open svg { -webkit-transform: rotate(90deg); transform: rotate(90deg); }
 .st-node[hidden], .st-kids[hidden] { display: none; }
+.ws-gone { color: #b06000; font-weight: 650; }

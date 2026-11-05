@@ -84,21 +84,64 @@
     return s.url + (s.image ? '/exportImage?bbox=' + bbox + '&bboxSR=3857&imageSR=3857&size=512,512&format=png&f=image'
       : '/export?bbox=' + bbox + '&bboxSR=3857&imageSR=3857&size=512,512&dpi=192&format=png32&transparent=true' + (s.show ? '&layers=show:' + s.show.join(',') : '') + '&f=image');
   }
-  var Tiles = L.TileLayer.extend({ getTileUrl: function (c) { return tileUrl(this._gcService, c.z, c.x, c.y); } });
+  var bust = {}; // service url → a fresh-load stamp after Reconnect (not saved: offline copies keep their plain addresses)
+  var Tiles = L.TileLayer.extend({ getTileUrl: function (c) { var u = tileUrl(this._gcService, c.z, c.x, c.y), b = bust[this._gcService.url]; return b && navigator.onLine !== false ? u + '&_gc=' + b : u; } });
   function tileLayer(l, pane) {
     var t = new Tiles('', { pane: pane, tileSize: 256, maxZoom: 22, maxNativeZoom: l.service.maxNative, minZoom: 3, keepBuffer: 2, updateWhenZooming: false,
       attribution: esc(l.service.copyright || l.service.source) });
     t._gcService = l.service;
-    t.on('tileerror', function (e) { whyNot(l, e.tile && e.tile.src); });
+    t.on('tileerror', function (e) { // try a failed image again twice (servers drop requests when busy), then say why
+      var tile = e.tile; if (!tile || !t._map) return;
+      var n = tile._gcTries = (tile._gcTries || 0) + 1, src = tile.src.replace(/&_r=\d+$/, '');
+      if (n <= 2 && navigator.onLine !== false) { setTimeout(function () { if (t._map && tile.parentNode) tile.src = src + '&_r=' + Date.now(); }, 2000 * n); return; }
+      whyNot(l, src);
+    });
     return t;
   }
+  /** Reconnect a web layer: ask its server again (fresh), refresh its layer list, reload its images. */
+  function reconnect(l, quiet) {
+    var s = l.service;
+    Object.keys(cache).forEach(function (k) { if (k.indexOf(s.url) === 0) delete cache[k]; });
+    delete told[l.id];
+    return getJSON(s.url).then(function (info) {
+      var fresh = layerFor(s.url, info, l.name).service, had = {};
+      s.subs.forEach(function (x) { had[x.id] = x; });
+      var changed = fresh.subs.length !== s.subs.length || fresh.subs.some(function (x) { return !had[x.id] || had[x.id].name !== x.name; });
+      if (changed) { s.subs = fresh.subs; if (s.show) s.show = s.show.filter(function (id) { return fresh.subs.some(function (x) { return x.id === id; }); }); GC.markDirty(l.id); }
+      bust[s.url] = Date.now().toString(36);
+      GC.renderLayer(l); GC.applyLayerState();
+      if (!quiet) GC.toast('“' + l.name + '” reconnected' + (changed ? ': its layer list was updated (' + fresh.subs.length + ' layers).' : '.'));
+      return true;
+    }, function (e) {
+      if (!quiet) GC.toast('Could not reach “' + l.name + '”: ' + (/could not be reached|did not answer/.test(e.message) ? 'its server is not answering. Check the internet connection, or try again in a minute.' : e.message), 'err', 9000);
+      return false;
+    });
+  }
+  /** All web layers in the project (Map menu, coming back online). */
+  function reconnectAll(quiet) {
+    var ls = (GC.project ? GC.project.layers : []).filter(function (l) { return l.kind === 'service'; });
+    return Promise.all(ls.map(function (l) { return reconnect(l, true); })).then(function (r) {
+      var bad = ls.filter(function (l, i) { return !r[i]; });
+      if (!quiet && ls.length) GC.toast(bad.length ? 'Reconnected ' + (ls.length - bad.length) + ' of ' + ls.length + ' web maps. Not answering: ' + bad.map(function (l) { return l.name; }).join(', ') + '.' : 'Reconnected ' + ls.length + ' web map' + (ls.length === 1 ? '' : 's') + '.', bad.length ? 'warn' : null, 7000);
+      return r;
+    });
+  }
+  if ($('btn-reconnect')) $('btn-reconnect').onclick = function () { if (GC.ui && GC.ui.close) GC.ui.close(); reconnectAll(false); };
+  /** Map menu: the Reconnect row shows when the project has web maps. */
+  function paintMenu() {
+    var b = $('btn-reconnect'); if (!b) return;
+    var n = (GC.project ? GC.project.layers : []).filter(function (l) { return l.kind === 'service'; }).length;
+    b.hidden = !n; $('mp-recon-n').textContent = n ? 'Ask ' + (n === 1 ? 'the online map’s server' : 'the ' + n + ' online maps’ servers') + ' again and reload' : '';
+  }
+  if ($('btn-map')) $('btn-map').addEventListener('click', paintMenu);
+  global.addEventListener('online', function () { setTimeout(function () { reconnectAll(true); }, 1500); }); // back online: fetch them again
   /** A map service's images did not load: ask the server why (once a minute at most) and say so. */
   var told = {};
   function whyNot(l, src) {
     if (!src || navigator.onLine === false || Date.now() - (told[l.id] || 0) < 60000) return;
     told[l.id] = Date.now();
     var many = l.service.show && l.service.show.length > 40;
-    var say = function (why) { GC.toast('“' + l.name + '” did not draw: ' + why + (many ? ' ' + l.service.show.length + ' of its layers are switched on: switch some off, or ⋯ › Default layers.' : ' ⋯ › Default layers puts it back as published.'), 'warn', 10000); };
+    var say = function (why) { GC.toast('“' + l.name + '” did not draw: ' + why + (many ? ' ' + l.service.show.length + ' of its layers are switched on: switch some off, or ⋯ › Default layers.' : ' Try ⋯ › Reconnect (or Map › Reconnect web maps).'), 'warn', 10000); };
     getJSON(src.replace(/&f=image$/, '')).then(function (d) { if (!d || !d.href) say('its server sent no map image.'); }, function (e) { say(/could not be reached|did not answer/.test(e.message) ? 'its server is not answering (it may be busy or down).' : 'its server says “' + e.message + '”.'); });
   }
   /** The project's visible service layers, as descriptors for Offline maps. */
@@ -163,6 +206,7 @@
       (s.image || !leaves(s).length ? '' : '<div class="pop-title small">Copy features to a GIS layer</div><div class="lib-copy"><select id="lib-fl">' + leaves(s).map(function (x) { return '<option value="' + x.id + '"' + (shown.indexOf(x.id) >= 0 && !copyPick ? (copyPick = ' selected') : '') + '>' + esc(pathOf(s, x)) + '</option>'; }).join('') + '</select>' +
         '<button class="btn" id="lib-copy">Copy features in view</button></div><p class="hint">Makes a GIS layer of that layer’s features on screen now: tap them, use them offline, export them or run Parcels along.</p>') +
       '<div class="pop-title small">Legend</div><div id="lo-legend" class="lib-legend"><p class="hint">Loading…</p></div>' +
+      '<div class="row-btns"><button class="btn" id="lib-recon" title="Ask the server again and reload the map">↻ Reconnect</button></div>' +
       '<p class="hint">Source: ' + esc(s.source) + (s.copyright ? ' · ' + esc(s.copyright) : '') + '<br><a href="' + esc(s.url) + '" target="_blank" rel="noopener">Service details</a></p>';
   }
   /** The service's layers as a tree like ArcGIS's layer list: groups fold, a group's box switches everything in it. */
@@ -240,6 +284,7 @@
     var s = l.service;
     tree(l, el);
     var id = el.querySelector('#lo-ident'); if (id) id.onchange = function () { l.identify = id.checked; GC.markDirty(l.id); };
+    var rc = el.querySelector('#lib-recon'); if (rc) rc.onclick = function () { rc.disabled = true; rc.textContent = 'Connecting…'; reconnect(l).then(function () { GC.closeModal(); GC.layerOptions(l); }); };
     var cp = el.querySelector('#lib-copy'); if (cp) cp.onclick = function () { var sub = +el.querySelector('#lib-fl').value; GC.closeModal(); copyFeatures(l, sub); };
     legend(l, el.querySelector('#lo-legend'));
   }
@@ -442,6 +487,6 @@
   }
 
   if ($('btn-library')) $('btn-library').onclick = function () { open(); };
-  GC.library = { open: open, add: addService, parseUrl: parseUrl, copyFeatures: copyFeatures, layerFor: layerFor, tileUrl: tileUrl, tileLayer: tileLayer, identify: identify, optionsHtml: optionsHtml, bindOptions: bindOptions,
+  GC.library = { open: open, add: addService, parseUrl: parseUrl, copyFeatures: copyFeatures, reconnect: reconnect, reconnectAll: reconnectAll, layerFor: layerFor, tileUrl: tileUrl, tileLayer: tileLayer, identify: identify, optionsHtml: optionsHtml, bindOptions: bindOptions,
     visibleServices: visibleServices, index: index, FEATURED: FEATURED, ROOTS: ROOTS };
 })(window);

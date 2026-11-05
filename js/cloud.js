@@ -350,6 +350,13 @@
     return { v: 1, device: cfg().device || '', meta: { name: res.meta.name, notes: res.meta.notes, basemap: res.meta.basemap, job: res.meta.job || undefined, view: p.view, created: p.created },
       order: res.order, layers: layers, files: res.files, photos: res.photos, blobs: blobs };
   }
+  /** Whether a project is exactly as it was last synced (no change of its own since). */
+  function unchanged(p) {
+    var B = p && p.cloud; if (!B || !B.layers || !B.meta) return false;
+    if (Object.keys(B.layers).length !== p.layers.length) return false;
+    if (!p.layers.every(function (l) { return B.layers[l.id] && B.layers[l.id].h === info(l).h; })) return false;
+    return META.every(function (f) { return sameV(B.meta[f], p[f] == null ? '' : p[f]); });
+  }
   function differs(a, b) {
     if (!b) return true;
     return JSON.stringify([a.order, a.layers, a.files, META.map(function (f) { return a.meta[f]; })]) !== JSON.stringify([b.order, b.layers, b.files || {}, META.map(function (f) { return b.meta[f]; })]);
@@ -416,7 +423,7 @@
     });
   }
 
-  /** One full sync of a project: fetch, merge, apply, push. Returns 'ok' | 'skip' | 'busy' | 'unlinked'. */
+  /** One full sync of a project: fetch, merge, apply, push. Returns 'ok' | 'skip' | 'busy' | 'unlinked' | 'deleted'. */
   function syncProject(p, isOpen) {
     var attempts = 0;
     var stillOurs = function () { return isOpen ? GC.project === p : !(GC.project && GC.project.id === p.id); };
@@ -425,6 +432,9 @@
         if (p.cloudOff || otherTeam(p) || !stillOurs() || (signedIn() && !spaceId(p))) return 'skip'; // signed in but in no team: only private jobs sync
         var base = p.cloud || null;
         if (rem && rem.deleted) {
+          if (base && p.job && !isOpen && unchanged(p)) { // your private job, deleted on your other device (nothing new here): gone here too
+            return Store.deleteProject(p.id).then(function () { return 'deleted'; });
+          }
           if (base) { // deleted from the cloud on another device: keep this copy, stop sharing it
             delete p.cloud; p.cloudOff = true;
             return Store.saveProject(p, {}).then(function () {
@@ -477,7 +487,7 @@
       });
     }
     return round(undefined).then(function (r) {
-      if (!isOpen && (r === 'ok' || r === 'skip' || r === 'unlinked')) pending(p.id, false);
+      if (!isOpen && (r === 'ok' || r === 'skip' || r === 'unlinked' || r === 'deleted')) pending(p.id, false);
       return r;
     });
   }
@@ -707,7 +717,7 @@
       return Store.saveProject(p, {}).then(function () { return enqueue(function () { return syncProject(p, false); }); }).then(function () { return Store.loadProject(id); });
     });
   }
-  function deleteEverywhere(id) { return api('DELETE', 'projects/' + id); }
+  function deleteEverywhere(id, space) { return api('DELETE', 'projects/' + id, null, space ? { space: space } : null); }
   /** Changes a project that is not open (the My maps library) in the sync queue, so a background sync can't overwrite it:
       fn(p) edits a fresh copy and returns the changed layer ids; it is saved, then synced when the cloud is on. */
   function edit(id, fn) {
@@ -730,7 +740,7 @@
     if (!quiet && on()) { lastCheck = 0; run(true).then(syncOthers); }
   }
   GC.cloud = { api: api, signedIn: signedIn, spaceOf: spaceOf, refresh: refresh, on: on, run: run, renderSettings: renderSettings, openTeam: openTeam, team: team, otherTeam: otherTeam, normCode: normCode, describe: describe, remoteList: remoteList, download: download, deleteEverywhere: deleteEverywhere, linked: linked, edit: edit, hash: hash,
-    blob: getBlob, missing: function (pid, hashes) { return api('POST', 'projects/' + pid + '/missing', { hashes: hashes }).then(function (r) { return r.missing; }); }, touch: function (id) { pending(id, true); },
+    blob: getBlob, missing: function (pid, hashes) { return api('POST', 'projects/' + pid + '/missing', { hashes: hashes }).then(function (r) { return r.missing; }); }, touch: function (id) { pending(id, true); }, isPending: function (id) { return !!pendingSet()[id]; }, unchanged: unchanged,
     _test: { hash: hash, info: info, merge: merge, mergeLayer: mergeLayer } };
 
   // start
