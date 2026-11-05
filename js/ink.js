@@ -160,6 +160,7 @@
     }
     if (el.type === 'text') {
       var ta = Geo.merc(el.at[0], el.at[1]), w = el.text.length * el.size * 0.62 + el.size * 0.7, h = el.size * 1.5;
+      if (el.rot) { var rr = Math.hypot(w, h) / 2; return { anchor: ta, unit: unit, bounds: [-rr, -rr, rr, rr] }; } // turned text: any way round
       return { anchor: ta, unit: unit, bounds: [-w / 2, -h / 2, w / 2, h / 2] };
     }
     return null;
@@ -192,11 +193,11 @@
     if (el.type === 'marker') return;
     var g = el._g || (el._g = build(el)); if (!g) return;
     var s = Math.pow(2, zoom - el.z0);
-    var a = g.anchor;
-    if (preview) { var tm = preview(a); a = tm.a; s *= tm.k; }
+    var a = g.anchor, rot = 0;
+    if (preview) { var tm = preview(a); a = tm.a; s *= tm.k; rot = tm.r || 0; }
     var o = pt(a);
     ctx.save();
-    ctx.translate(o[0], o[1]); ctx.scale(s, s);
+    ctx.translate(o[0], o[1]); if (rot) ctx.rotate(rot); ctx.scale(s, s);
     var alpha = (el.opacity == null ? 1 : el.opacity) * layerOpacity;
     ctx.globalAlpha = alpha;
     if (el.type === 'stroke') {
@@ -213,6 +214,7 @@
       if (el.dashed && ctx.setLineDash) ctx.setLineDash([el.width * 3, el.width * 2]);
       ctx.stroke(g.path);
     } else if (el.type === 'text') {
+      if (el.rot) ctx.rotate(el.rot);
       ctx.font = '600 ' + el.size + 'px -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
       var w = ctx.measureText(el.text).width, h = el.size * 1.35;
       ctx.fillStyle = 'rgba(15,20,18,0.55)';
@@ -234,8 +236,9 @@
       this._pt = function (m) { return [m[0] * W - origin.x, m[1] * W - origin.y]; };
       var b = mercBounds(el), pad = el.type === 'marker' ? 30 : 2;
       var p1 = this._pt([b[0], b[1]]), p2 = this._pt([b[2], b[3]]);
-      if (this.preview) { var t1 = this.preview([b[0], b[1]]), t2 = this.preview([b[2], b[3]]); p1 = this._pt(t1.a); p2 = this._pt(t2.a); }
-      this._pxBounds = L.bounds([Math.min(p1[0], p2[0]) - pad, Math.min(p1[1], p2[1]) - pad], [Math.max(p1[0], p2[0]) + pad, Math.max(p1[1], p2[1]) + pad]);
+      var xs = [p1[0], p2[0]], ys = [p1[1], p2[1]], self = this;
+      if (this.preview) { xs = []; ys = []; [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]].forEach(function (c) { var q = self._pt(self.preview(c).a); xs.push(q[0]); ys.push(q[1]); }); } // moved, scaled or turned
+      this._pxBounds = L.bounds([Math.min.apply(null, xs) - pad, Math.min.apply(null, ys) - pad], [Math.max.apply(null, xs) + pad, Math.max.apply(null, ys) + pad]);
     },
     _update: function () { if (this._map) this._updatePath(); },
     _updatePath: function () {
@@ -254,6 +257,14 @@
   }
   function stripCache(el) { var c = {}; for (var k in el) if (k !== '_g') c[k] = el[k]; return c; }
   function translate(el, dx, dy) { return mapCoords(el, function (m) { return [m[0] + dx, m[1] + dy]; }); }
+  /** Turns an element by ang radians (clockwise on screen) about the mercator point (ax, ay). */
+  function rotate(el, ax, ay, ang) {
+    var cs = Math.cos(ang), sn = Math.sin(ang);
+    var c = mapCoords(el, function (m) { var dx = m[0] - ax, dy = m[1] - ay; return [ax + dx * cs - dy * sn, ay + dx * sn + dy * cs]; });
+    if (c.type === 'text') { c.rot = ((el.rot || 0) + ang) % (2 * Math.PI); if (Math.abs(c.rot) < 1e-6) delete c.rot; }
+    if (c.type === 'stroke') c.pts.forEach(function (q) { if (q.length > 4 && q[4] != null) q[4] += ang; }); // the fountain pen's nib turns too
+    return c;
+  }
   function scale(el, ax, ay, k) {
     var c = mapCoords(el, function (m) { return [ax + (m[0] - ax) * k, ay + (m[1] - ay) * k]; });
     if (c.type !== 'marker') c.z0 = el.z0 - Math.log(k) / Math.LN2; // widths scale with the element
@@ -330,7 +341,7 @@
     return sel;
   }
 
-  global.Ink = { INKS: INKS, uid: uid, build: build, draw: draw, InkPath: InkPath, mercBounds: mercBounds, translate: translate, scale: scale,
+  global.Ink = { INKS: INKS, uid: uid, build: build, draw: draw, InkPath: InkPath, mercBounds: mercBounds, translate: translate, scale: scale, rotate: rotate,
     erase: erase, lasso: lasso, simplify: simplify, shapeOutline: shapeOutline, isClosed: isClosed, outline: outline, samples: samples,
     stripCache: stripCache, mercPoints: mercPoints, inPoly: inPoly, distToLine: distToLine };
 })(typeof window !== 'undefined' ? window : global);

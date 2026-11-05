@@ -66,12 +66,30 @@
       var c = mercToCP(g.last); lctx.save(); lctx.beginPath(); lctx.arc(c[0], c[1], GC.settings.eraserSize / 2, 0, 2 * Math.PI);
       lctx.fillStyle = 'rgba(255,255,255,0.35)'; lctx.fill(); lctx.lineWidth = 1.5; lctx.strokeStyle = 'rgba(0,0,0,0.6)'; lctx.stroke(); lctx.restore();
     }
-    var sb = selectionBox();
+    var sb = g && g.op === 'rotate' ? null : selectionBox();
+    if (g && g.op === 'rotate' && g.box) { // the box turning with the selection, and the angle
+      var q = g.box.map(function (c) { return mercToCP(g.preview ? g.preview(c).a : c); }), cc = mercToCP(g.centerM);
+      lctx.save(); lctx.setLineDash([5, 4]); lctx.lineWidth = 1.5; lctx.strokeStyle = '#0f7a5f';
+      lctx.beginPath(); q.forEach(function (p, i) { if (i) lctx.lineTo(p[0], p[1]); else lctx.moveTo(p[0], p[1]); }); lctx.closePath(); lctx.stroke(); lctx.setLineDash([]);
+      var deg = Math.round((g.ang || 0) * 180 / Math.PI), t = (deg > 0 ? '+' : '') + deg + '°';
+      lctx.font = '700 14px -apple-system, sans-serif'; var tw = lctx.measureText(t).width;
+      lctx.fillStyle = '#0f7a5f'; lctx.beginPath(); lctx.arc(cc[0], cc[1], 4, 0, 7); lctx.fill();
+      lctx.fillStyle = 'rgba(255,255,255,.92)'; lctx.fillRect(cc[0] - tw / 2 - 7, cc[1] - 34, tw + 14, 22); lctx.fillStyle = '#0f7a5f'; lctx.textAlign = 'center'; lctx.textBaseline = 'middle'; lctx.fillText(t, cc[0], cc[1] - 23);
+      lctx.restore();
+    }
     if (sb) {
       var a = sb.px;
       lctx.save(); lctx.setLineDash([5, 4]); lctx.lineWidth = 1.5; lctx.strokeStyle = '#0f7a5f';
       lctx.strokeRect(a[0], a[1], a[2] - a[0], a[3] - a[1]); lctx.setLineDash([]);
       [[a[0], a[1]], [a[2], a[1]], [a[2], a[3]], [a[0], a[3]]].forEach(function (h) { lctx.beginPath(); lctx.arc(h[0], h[1], 7, 0, 2 * Math.PI); lctx.fillStyle = '#fff'; lctx.fill(); lctx.lineWidth = 2; lctx.strokeStyle = '#0f7a5f'; lctx.stroke(); });
+      if (!g || g.op !== 'scale') { // the rotate handle above the box
+        var rh = rotHandle(a);
+        lctx.beginPath(); lctx.moveTo(rh[0], a[1]); lctx.lineTo(rh[0], rh[1] + 11); lctx.lineWidth = 1.5; lctx.strokeStyle = '#0f7a5f'; lctx.stroke();
+        lctx.beginPath(); lctx.arc(rh[0], rh[1], 11, 0, 2 * Math.PI); lctx.fillStyle = '#0f7a5f'; lctx.fill();
+        lctx.beginPath(); lctx.arc(rh[0], rh[1], 5.5, -Math.PI * 0.95, Math.PI * 0.55); lctx.lineWidth = 2; lctx.strokeStyle = '#fff'; lctx.stroke();
+        var ex = rh[0] + 5.5 * Math.cos(Math.PI * 0.55), ey = rh[1] + 5.5 * Math.sin(Math.PI * 0.55);
+        lctx.beginPath(); lctx.moveTo(ex - 4, ey - 1); lctx.lineTo(ex + 0.5, ey + 0.5); lctx.lineTo(ex + 1, ey - 4.5); lctx.stroke();
+      }
       lctx.restore();
     }
   }
@@ -85,6 +103,13 @@
     Object.keys(GC.selection).forEach(function (lid) { var l = GC.layerById(lid); if (!l) return; l.items.forEach(function (el) { if (GC.selection[lid][el.id]) out.push({ l: l, el: el }); }); });
     return out;
   }
+  function rotHandle(a) { return [(a[0] + a[2]) / 2, a[1] - 30]; }
+  function selCentre() { var sb = selectionBox(); return sb ? [(sb.merc[0] + sb.merc[2]) / 2, (sb.merc[1] + sb.merc[3]) / 2] : null; }
+  /** Turns the selection by ang radians (clockwise) about its middle (undoable). */
+  GC.rotateSelection = function (ang) {
+    var c = selCentre(); if (!c || !ang) return;
+    transformSelection(function (el) { return Ink.rotate(el, c[0], c[1], ang); });
+  };
   function selectionBox() {
     if (!selCount()) return null;
     var b = [Infinity, Infinity, -Infinity, -Infinity], any = false;
@@ -130,6 +155,8 @@
     return true;
   };
   $('sel-del').onclick = GC.deleteSelection;
+  $('sel-rotl').onclick = function () { GC.rotateSelection(-Math.PI / 2); };
+  $('sel-rotr').onclick = function () { GC.rotateSelection(Math.PI / 2); };
   $('sel-clear').onclick = GC.clearSelection;
   $('sel-dup').onclick = function () {
     var off = 18 * unitAtZoom(), newSel = {}, changes = [];
@@ -311,8 +338,12 @@
     } else if (tool === 'lasso') {
       var sb = selectionBox();
       if (sb) {
-        var a = sb.px, corners = [[a[0], a[1], a[2], a[3]], [a[2], a[1], a[0], a[3]], [a[2], a[3], a[0], a[1]], [a[0], a[3], a[2], a[1]]];
-        for (var i = 0; i < 4; i++) if (Math.hypot(cp[0] - corners[i][0], cp[1] - corners[i][1]) < 26) { g.op = 'scale'; g.anchorPx = [corners[i][2], corners[i][3]]; g.cornerPx = [corners[i][0], corners[i][1]]; g.anchorM = cpToMerc(g.anchorPx); break; }
+        var a = sb.px, corners = [[a[0], a[1], a[2], a[3]], [a[2], a[1], a[0], a[3]], [a[2], a[3], a[0], a[1]], [a[0], a[3], a[2], a[1]]], rh = rotHandle(a);
+        if (Math.hypot(cp[0] - rh[0], cp[1] - rh[1]) < 24) { // the rotate handle
+          var mb = sb.merc; g.op = 'rotate'; g.centerM = [(mb[0] + mb[2]) / 2, (mb[1] + mb[3]) / 2]; g.box = [[mb[0], mb[1]], [mb[2], mb[1]], [mb[2], mb[3]], [mb[0], mb[3]]];
+          var c0 = mercToCP(g.centerM); g.a0 = Math.atan2(cp[1] - c0[1], cp[0] - c0[0]); g.ang = 0;
+        }
+        for (var i = 0; i < 4 && !g.op; i++) if (Math.hypot(cp[0] - corners[i][0], cp[1] - corners[i][1]) < 26) { g.op = 'scale'; g.anchorPx = [corners[i][2], corners[i][3]]; g.cornerPx = [corners[i][0], corners[i][1]]; g.anchorM = cpToMerc(g.anchorPx); break; }
         if (!g.op && cp[0] >= a[0] && cp[0] <= a[2] && cp[1] >= a[1] && cp[1] <= a[3]) g.op = 'move';
       }
       if (!g.op) { g.op = 'lasso'; g.ring = [m]; }
@@ -336,6 +367,13 @@
     } else if (tool === 'lasso') {
       if (g.op === 'lasso') g.ring.push(m);
       else if (g.op === 'move') { var dx = m[0] - g.startM[0], dy = m[1] - g.startM[1]; g.preview = function (a) { return { a: [a[0] + dx, a[1] + dy], k: 1 }; }; setPreview(g.preview); }
+      else if (g.op === 'rotate') {
+        var cc = mercToCP(g.centerM), ang = Math.atan2(cp[1] - cc[1], cp[0] - cc[0]) - g.a0;
+        ang = Math.atan2(Math.sin(ang), Math.cos(ang)); // −180…180°
+        var step = Math.PI / 12, snap = Math.round(ang / step) * step; if (Math.abs(ang - snap) < 0.07) ang = snap; // clicks to 15° steps
+        var ccx = g.centerM[0], ccy = g.centerM[1], cs = Math.cos(ang), sn = Math.sin(ang);
+        g.ang = ang; g.preview = function (a) { var dx = a[0] - ccx, dy = a[1] - ccy; return { a: [ccx + dx * cs - dy * sn, ccy + dx * sn + dy * cs], k: 1, r: ang }; }; setPreview(g.preview);
+      }
       else if (g.op === 'scale') {
         var d0 = Math.hypot(g.cornerPx[0] - g.anchorPx[0], g.cornerPx[1] - g.anchorPx[1]) || 1, d1 = Math.hypot(cp[0] - g.anchorPx[0], cp[1] - g.anchorPx[1]);
         var k = Math.max(0.05, d1 / d0), ax = g.anchorM[0], ay = g.anchorM[1];
@@ -395,6 +433,9 @@
         setPreview(null);
         if (gs.moved) { var dx = gs.last[0] - gs.startM[0], dy = gs.last[1] - gs.startM[1]; transformSelection(function (el) { return Ink.translate(el, dx, dy); }); }
         else tapSelect(gs.start);
+      } else if (gs.op === 'rotate') {
+        setPreview(null);
+        if (gs.ang && Math.abs(gs.ang) > 1e-3) { var rc = gs.centerM, ra = gs.ang; transformSelection(function (el) { return Ink.rotate(el, rc[0], rc[1], ra); }); }
       } else if (gs.op === 'scale') {
         setPreview(null);
         if (gs.k && Math.abs(gs.k - 1) > 1e-3) { var ax = gs.anchorM[0], ay = gs.anchorM[1], k = gs.k; transformSelection(function (el) { return Ink.scale(el, ax, ay, k); }); }

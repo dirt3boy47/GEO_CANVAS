@@ -78,6 +78,7 @@
   function canvasJpeg(cv, q) { return new Promise(function (res) { cv.toBlob(function (b) { bytesOf(b).then(res); }, 'image/jpeg', q || 0.85); }); }
   function loadImg(src) { return new Promise(function (res) { var im = new Image(); im.crossOrigin = 'anonymous'; var done = false, t = setTimeout(function () { if (!done) { done = true; res(null); } }, 9000); im.onload = function () { if (!done) { done = true; clearTimeout(t); res(im); } }; im.onerror = function () { if (!done) { done = true; clearTimeout(t); res(null); } }; im.src = src; }); }
   /** An overview map of the actions with numbered pins (background imagery when it can be fetched). */
+  var withLayers = true; // the project's visible layers on the report's maps (set per report)
   function overview(items, pxW, pxH, zMax) {
     var crs = L.CRS.EPSG3857, b = null;
     items.forEach(function (it) { var w = it.x.w, g = GC.camera.shapeOf(w), add = function (lat, lon) { b = b ? b.extend([lat, lon]) : L.latLngBounds([lat, lon], [lat, lon]); }; add(w.lat, w.lon); if (g) (g.type === 'Polygon' ? g.coordinates[0] : g.coordinates).forEach(function (q) { add(q[1], q[0]); }); });
@@ -102,6 +103,7 @@
     var tryDefs = function (i) { if (i >= defs.length) return Promise.resolve(null); return tiles(defs[i]).then(function (r) { return r.ok >= Math.max(1, r.n * 0.5) ? r : tryDefs(i + 1); }); };
     return tryDefs(0).then(function (bg) {
       var dpr = pxW / 1000;
+      return (withLayers && GC.mapRender ? GC.mapRender.draw(ctx, { z: z, ox: o.x, oy: o.y, w: pxW, h: pxH, k: dpr }, { skip: function (l) { return l.photoPts; } }) : Promise.resolve(null)).then(function (lr) {
       items.forEach(function (it) {
         var w = it.x.w, col = GC.camera.impOf(w).c;
         if (w.geom) {
@@ -132,7 +134,8 @@
       var nx = pxW - 34 * dpr, ny = 30 * dpr; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(nx, ny + 6 * dpr, 20 * dpr, 0, 7); ctx.fill();
       ctx.fillStyle = '#202124'; ctx.beginPath(); ctx.moveTo(nx, ny - 8 * dpr); ctx.lineTo(nx + 7 * dpr, ny + 10 * dpr); ctx.lineTo(nx, ny + 6 * dpr); ctx.lineTo(nx - 7 * dpr, ny + 10 * dpr); ctx.closePath(); ctx.fill();
       ctx.font = 'bold ' + Math.round(11 * dpr) + 'px Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('N', nx, ny + 22 * dpr);
-      return canvasJpeg(cv, 0.86).then(function (bytes) { return { bytes: bytes, w: pxW, h: pxH, bg: bg }; });
+      return canvasJpeg(cv, 0.86).then(function (bytes) { return { bytes: bytes, w: pxW, h: pxH, bg: bg, layers: lr }; });
+      });
     });
   }
   function photo(ref) {
@@ -151,6 +154,7 @@
   function fit(iw, ih, bw, bh) { var k = Math.min(bw / iw, bh / ih); return [iw * k, ih * k]; }
   /** Builds the PDF for the listed register rows. opt: { title, by, perPage (1|2), map, noPhoto, scope } */
   function build(list, opt, progress) {
+    withLayers = opt.layers !== false;
     var cam = GC.camera, items = list.filter(function (x) { return opt.noPhoto || hasPic(x.w); }).map(function (x, i) { return { x: x, n: i + 1 }; });
     var doc = new Doc(), when = new Date(), proj = GC.project, team = GC.cloud && GC.cloud.team && GC.cloud.team();
     var dateStr = when.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -192,6 +196,10 @@
         var mw = W - 2 * M, mh = mw * ov.h / ov.w, my = y + 20;
         doc.image(doc.jpeg(ov.bytes, ov.w, ov.h), M, my, mw, mh); doc.rect(M, my, mw, mh, null, '#9aa0a6', 0.6);
         doc.text(M, my + mh + 12, 'Numbers match the actions on the following pages; colours show importance.' + (ov.bg ? ' Imagery: ' + ov.bg.label + '.' : ''), 7.5, false, '#5f6368');
+        if (ov.layers && (ov.layers.drawn.length || ov.layers.missed.length)) {
+          var lt = (ov.layers.drawn.length ? 'Layers: ' + ov.layers.drawn.join(', ') + '.' : '') + (ov.layers.missed.length ? ' Not shown: ' + ov.layers.missed.map(function (m) { return m.name + ' (' + m.why + ')'; }).join('; ') + '.' : '');
+          wrap(lt.trim(), 7.5, false, W - 2 * M).slice(0, 3).forEach(function (ln, i) { doc.text(M, my + mh + 23 + i * 9.5, ln, 7.5, false, '#5f6368'); });
+        }
       }
       // ----- the actions -----
       var per = opt.perPage === 1 ? 1 : 2, slotH = (H - 44 - 50) / per;
@@ -248,6 +256,7 @@
       '<label class="field">Prepared by<input type="text" id="pr-by" value="' + esc(me) + '" placeholder="Your name"></label>' +
       '<div class="cam-lbl">Layout</div><div class="seg small" id="pr-per"><button data-p="2" class="on">2 per page</button><button data-p="1">1 per page, large photo</button></div>' +
       '<label class="opt"><input type="checkbox" id="pr-map" checked> Overview map on the first page (numbered pins)</label>' +
+      '<label class="opt"><input type="checkbox" id="pr-layers" checked> Show the map’s visible layers on the maps (drawings, CAD, GIS, plans, online maps)</label>' +
       '<label class="opt"><input type="checkbox" id="pr-nophoto" checked> Include actions without a photo or drawing</label>' +
       '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Create PDF</button></div>',
     function (el, close) {
@@ -255,7 +264,7 @@
       el.querySelector('#pr-per').onclick = function (e) { var b = e.target.closest('[data-p]'); if (!b) return; per = +b.getAttribute('data-p'); [].forEach.call(this.children, function (x) { x.classList.toggle('on', x === b); }); };
       el.querySelector('[data-a=no]').onclick = close;
       el.querySelector('[data-a=go]').onclick = function () {
-        var opt = { title: el.querySelector('#pr-title').value.trim() || 'Photo report', by: el.querySelector('#pr-by').value.trim(), perPage: per, map: el.querySelector('#pr-map').checked, noPhoto: el.querySelector('#pr-nophoto').checked, scope: scope };
+        var opt = { title: el.querySelector('#pr-title').value.trim() || 'Photo report', by: el.querySelector('#pr-by').value.trim(), perPage: per, map: el.querySelector('#pr-map').checked, noPhoto: el.querySelector('#pr-nophoto').checked, layers: el.querySelector('#pr-layers').checked, scope: scope };
         close(); GC.busy('Creating the report…');
         build(list, opt, function (t) { GC.busy(t); }).then(function (r) {
           GC.busy(null);

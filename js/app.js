@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-11-04.3' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-05.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -374,17 +374,7 @@
     onRemove: function () { L.DomUtil.remove(this._cv); },
     getEvents: function () { return { moveend: this._draw, zoomstart: this._hide, resize: this._draw, viewreset: this._draw }; },
     _hide: function () { this._cv.style.visibility = 'hidden'; },
-    _prep: function () { // mercator coordinates and bounding boxes, once
-      var c = this._l.cad, dc = GC.cad.decode(c);
-      var merc = function (a, b) {
-        var n = a.length / 2, m = new Float64Array(n * 2);
-        for (var k = 0; k < n; k++) { var q = Geo.merc(a[2 * k], a[2 * k + 1]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
-        return m;
-      };
-      this._lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, ly: ln.ly, m: merc(ln.p, b), b: b }; });
-      this._fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, ly: f.ly, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
-      this._texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7], ly: t[8] != null ? t[8] : -1 }; });
-    },
+    _prep: function () { this._p = cadPrep(this._l.cad); }, // mercator coordinates and bounding boxes, once per drawing
     _draw: function () {
       var map = this._map; if (!map) return;
       var l = this._l, size = map.getSize(), pad = 0.3, w = Math.round(size.x * (1 + 2 * pad)), h = Math.round(size.y * (1 + 2 * pad)), dpr = Math.min(2, global.devicePixelRatio || 1);
@@ -393,48 +383,68 @@
       cv.width = w * dpr; cv.height = h * dpr; cv.style.width = w + 'px'; cv.style.height = h + 'px'; cv.style.visibility = '';
       var x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
       var ws = 256 * Math.pow(2, map.getZoom()), o = map.getPixelOrigin(), ox = o.x + tl.x, oy = o.y + tl.y;
-      var vb = [ox / ws, oy / ws, (ox + w) / ws, (oy + h) / ws], colors = l.cad.colors, mono = l.mono;
-      x.lineWidth = 1.4; x.lineJoin = 'round'; x.lineCap = 'round';
-      var names = l.cad.layers || [], hide = l.cadOff || {}, gone = function (ly) { return ly >= 0 && hide[names[ly]]; }; // DXF layers switched off
-      var off = function (b) { return b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]; };
-      var tiny = 0.6 / ws; // smaller than ~half a pixel at this zoom: not worth drawing
-      // a path through screen points, skipping points less than ~¾ pixel from the last one drawn (level of detail)
-      var trace = function (m, close) {
-        var lx = m[0] * ws - ox, ly = m[1] * ws - oy; x.moveTo(lx, ly);
-        for (var k = 2; k < m.length; k += 2) { var px = m[k] * ws - ox, py = m[k + 1] * ws - oy; if (k < m.length - 2 && Math.abs(px - lx) + Math.abs(py - ly) < 0.75) continue; x.lineTo(px, py); lx = px; ly = py; }
-        if (close) x.closePath();
-      };
-      if (l.hideFills !== true && this._fills.length) { // hatches under the linework: solid fills half-strength, patterns as a light tint
-        var fBy = {};
-        this._fills.forEach(function (f) { if (gone(f.ly) || off(f.b) || (f.b[2] - f.b[0] < tiny && f.b[3] - f.b[1] < tiny)) return; var k = f.c + ':' + (f.s ? 1 : 0); (fBy[k] = fBy[k] || []).push(f); });
-        Object.keys(fBy).forEach(function (k) {
-          var parts = k.split(':'); x.fillStyle = mono || colors[parts[0]]; x.globalAlpha = parts[1] === '1' ? 0.5 : 0.14; x.beginPath();
-          fBy[k].forEach(function (f) { f.r.forEach(function (m) { trace(m, true); }); });
-          x.fill('evenodd');
-        });
-        x.globalAlpha = 1;
-      }
-      var byColor = {};
-      this._lines.forEach(function (ln) { if (gone(ln.ly) || off(ln.b) || (ln.b[2] - ln.b[0] < tiny && ln.b[3] - ln.b[1] < tiny)) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
-      Object.keys(byColor).forEach(function (ci) {
-        x.strokeStyle = mono || colors[ci]; x.beginPath();
-        byColor[ci].forEach(function (ln) { trace(ln.m, false); });
-        x.stroke();
-      });
-      if (l.showText === false || !this._texts.length) return;
-      var mpp = Geo.metersPerPixel(map.getZoom(), map.getCenter().lat);
-      this._texts.forEach(function (t) {
-        var px = t.h / mpp; if (px < 5 || px > 600 || gone(t.ly)) return;
-        var sx = t.m[0] * ws - ox, sy = t.m[1] * ws - oy; if (sx < -500 || sy < -500 || sx > w + 500 || sy > h + 500) return;
-        var rows = t.s.split('\n'); x.save(); x.translate(sx, sy); x.rotate(-t.r * Math.PI / 180);
-        x.font = px.toFixed(1) + 'px -apple-system, Helvetica, Arial, sans-serif'; x.fillStyle = mono || colors[t.c];
-        x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 2;
-        var lh = px * 1.35, top = -(1 - t.ay) * (rows.length - 1) * lh; // top-attached text flows down from its anchor
-        rows.forEach(function (row, i) { var tw = x.measureText(row).width; x.fillText(row, -t.ax * tw, top + i * lh + (t.ay === 1 ? px * 0.8 : t.ay === 0.5 ? px * 0.35 : 0)); });
-        x.restore();
-      });
+      cadPaint(x, l, this._p, ws, ox, oy, w, h, Geo.metersPerPixel(map.getZoom(), map.getCenter().lat), 1.4);
     }
   });
+  var cadPreps = typeof WeakMap === 'function' ? new WeakMap() : { get: function () {}, set: function () {} };
+  /** A CAD drawing's linework, fills and texts in mercator, with bounding boxes (once per drawing). */
+  function cadPrep(c) {
+    var hit = cadPreps.get(c); if (hit) return hit;
+    var dc = GC.cad.decode(c), out = {};
+    var merc = function (a, b) {
+      var n = a.length / 2, m = new Float64Array(n * 2);
+      for (var k = 0; k < n; k++) { var q = Geo.merc(a[2 * k], a[2 * k + 1]); m[2 * k] = q[0]; m[2 * k + 1] = q[1]; if (q[0] < b[0]) b[0] = q[0]; if (q[0] > b[2]) b[2] = q[0]; if (q[1] < b[1]) b[1] = q[1]; if (q[1] > b[3]) b[3] = q[1]; }
+      return m;
+    };
+    out.lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, ly: ln.ly, m: merc(ln.p, b), b: b }; });
+    out.fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, ly: f.ly, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
+    out.texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7], ly: t[8] != null ? t[8] : -1 }; });
+    cadPreps.set(c, out); return out;
+  }
+  /** Paints a CAD drawing into a 2D context whose pixels are mercator × ws − (ox, oy); w × h is the area to fill.
+      Used for the map and for PDF maps. l: the layer's options (cad, mono, hideFills, cadOff, showText). */
+  function cadPaint(x, l, P, ws, ox, oy, w, h, mpp, lw) {
+    var vb = [ox / ws, oy / ws, (ox + w) / ws, (oy + h) / ws], colors = l.cad.colors, mono = l.mono;
+    x.lineWidth = lw || 1.4; x.lineJoin = 'round'; x.lineCap = 'round';
+    var names = l.cad.layers || [], hide = l.cadOff || {}, gone = function (ly) { return ly >= 0 && hide[names[ly]]; }; // DXF layers switched off
+    var off = function (b) { return b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]; };
+    var tiny = 0.6 / ws; // smaller than ~half a pixel at this zoom: not worth drawing
+    // a path through screen points, skipping points less than ~¾ pixel from the last one drawn (level of detail)
+    var trace = function (m, close) {
+      var lx = m[0] * ws - ox, ly = m[1] * ws - oy; x.moveTo(lx, ly);
+      for (var k = 2; k < m.length; k += 2) { var px = m[k] * ws - ox, py = m[k + 1] * ws - oy; if (k < m.length - 2 && Math.abs(px - lx) + Math.abs(py - ly) < 0.75) continue; x.lineTo(px, py); lx = px; ly = py; }
+      if (close) x.closePath();
+    };
+    if (l.hideFills !== true && P.fills.length) { // hatches under the linework: solid fills half-strength, patterns as a light tint
+      var fBy = {};
+      P.fills.forEach(function (f) { if (gone(f.ly) || off(f.b) || (f.b[2] - f.b[0] < tiny && f.b[3] - f.b[1] < tiny)) return; var k = f.c + ':' + (f.s ? 1 : 0); (fBy[k] = fBy[k] || []).push(f); });
+      Object.keys(fBy).forEach(function (k) {
+        var parts = k.split(':'); x.fillStyle = mono || colors[parts[0]]; x.globalAlpha = parts[1] === '1' ? 0.5 : 0.14; x.beginPath();
+        fBy[k].forEach(function (f) { f.r.forEach(function (m) { trace(m, true); }); });
+        x.fill('evenodd');
+      });
+      x.globalAlpha = 1;
+    }
+    var byColor = {};
+    P.lines.forEach(function (ln) { if (gone(ln.ly) || off(ln.b) || (ln.b[2] - ln.b[0] < tiny && ln.b[3] - ln.b[1] < tiny)) return; (byColor[ln.c] = byColor[ln.c] || []).push(ln); });
+    Object.keys(byColor).forEach(function (ci) {
+      x.strokeStyle = mono || colors[ci]; x.beginPath();
+      byColor[ci].forEach(function (ln) { trace(ln.m, false); });
+      x.stroke();
+    });
+    if (l.showText === false || !P.texts.length) return;
+    P.texts.forEach(function (t) {
+      var px = t.h / mpp; if (px < 5 || px > 600 || gone(t.ly)) return;
+      var sx = t.m[0] * ws - ox, sy = t.m[1] * ws - oy; if (sx < -500 || sy < -500 || sx > w + 500 || sy > h + 500) return;
+      var rows = t.s.split('\n'); x.save(); x.translate(sx, sy); x.rotate(-t.r * Math.PI / 180);
+      x.font = px.toFixed(1) + 'px -apple-system, Helvetica, Arial, sans-serif'; x.fillStyle = mono || colors[t.c];
+      x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 2;
+      var lh = px * 1.35, top = -(1 - t.ay) * (rows.length - 1) * lh; // top-attached text flows down from its anchor
+      rows.forEach(function (row, i) { var tw = x.measureText(row).width; x.fillText(row, -t.ax * tw, top + i * lh + (t.ay === 1 ? px * 0.8 : t.ay === 0.5 ? px * 0.35 : 0)); });
+      x.restore();
+    });
+  }
+  GC.cadPrep = cadPrep; GC.cadPaint = cadPaint;
 
   /** (Re)creates the Leaflet layers of any layer. */
   GC.renderLayer = function (l) {
