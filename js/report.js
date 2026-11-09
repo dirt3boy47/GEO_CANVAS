@@ -382,13 +382,14 @@
 
   /** The report dialog (from the register). list: the register rows to report; scope: which actions, in words. */
   var OPTS = 'gc.reportOpts';
-  function open(list, scope) {
+  function open(list, scope, preset) {
+    preset = preset || {};
     var s = GC.settings || {}, me = (s.cloud && s.cloud.device) || s.lastName || '', last = {};
     try { last = JSON.parse(localStorage.getItem(OPTS) || '{}'); } catch (e) { /* defaults */ }
-    var on = function (k, d) { return (last[k] == null ? d : last[k]) ? ' checked' : ''; };
+    var on = function (k, d) { return preset.pack || (last[k] == null ? d : last[k]) ? ' checked' : ''; }; // a work pack: everything a contractor needs
     var withPh = list.filter(function (x) { return x.w.photos && x.w.photos.length; }).length, withInk = list.filter(function (x) { return x.w.sketch && !(x.w.photos && x.w.photos.length); }).length;
-    GC.modal('<h2>PDF photo report</h2><p class="sub">' + list.length + ' action' + (list.length === 1 ? '' : 's') + ' (' + esc(scope || 'All actions') + '), ' + withPh + ' with photos' + (withInk ? ', ' + withInk + ' drawing' + (withInk === 1 ? '' : 's') : '') + '.</p>' +
-      '<label class="field">Title<input type="text" id="pr-title" value="' + esc(last.title || 'Photo report') + '"></label>' +
+    GC.modal('<h2>' + (preset.pack ? 'Work pack (PDF)' : 'PDF photo report') + '</h2>' + (preset.pack ? '<p class="sub">For a contractor, e.g. the arborist: your logo, a register on the front page, a location map, nearest address, lot and Google Maps links for every action, and its comments.</p>' : '') + '<p class="sub">' + list.length + ' action' + (list.length === 1 ? '' : 's') + ' (' + esc(scope || 'All actions') + '), ' + withPh + ' with photos' + (withInk ? ', ' + withInk + ' drawing' + (withInk === 1 ? '' : 's') : '') + '.</p>' +
+      '<label class="field">Title<input type="text" id="pr-title" value="' + esc(preset.title || last.title || 'Photo report') + '"></label>' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap"><label class="field" style="flex:1;min-width:160px">Prepared by<input type="text" id="pr-by" value="' + esc(me) + '" placeholder="Your name"></label>' +
       '<label class="field" style="flex:1;min-width:160px">Prepared for<input type="text" id="pr-for" value="' + esc(last.forWho || '') + '" placeholder="e.g. the arborist (optional)"></label></div>' +
       '<div class="cam-lbl">Layout</div><div class="seg small" id="pr-per"><button data-p="2" class="on">2 per page</button><button data-p="1">1 per page, large photo</button></div>' +
@@ -405,12 +406,13 @@
       '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Create PDF</button></div>',
     function (el, close) {
       var per = 2, q = function (x) { return el.querySelector(x); };
+      if (preset.pack) setTimeout(function () { var f = q('#pr-for'); if (f && !f.value) f.focus(); }, 50);
       q('#pr-per').onclick = function (e) { var b = e.target.closest('[data-p]'); if (!b) return; per = +b.getAttribute('data-p'); [].forEach.call(this.children, function (x) { x.classList.toggle('on', x === b); }); };
       q('[data-a=no]').onclick = close;
       q('[data-a=go]').onclick = function () {
         var opt = { title: q('#pr-title').value.trim() || 'Photo report', by: q('#pr-by').value.trim(), forWho: q('#pr-for').value.trim(), perPage: per, map: q('#pr-map').checked, noPhoto: q('#pr-nophoto').checked, layers: q('#pr-layers').checked, scope: scope,
           logo: q('#pr-logo').checked, register: q('#pr-reg').checked, locMaps: q('#pr-loc').checked, lookup: q('#pr-look').checked, links: q('#pr-links').checked };
-        try { localStorage.setItem(OPTS, JSON.stringify({ title: opt.title, forWho: opt.forWho, logo: opt.logo, register: opt.register, locMaps: opt.locMaps, lookup: opt.lookup, links: opt.links })); } catch (e) { /* private mode */ }
+        try { localStorage.setItem(OPTS, JSON.stringify(preset.pack ? Object.assign(last, { forWho: opt.forWho }) : { title: opt.title, forWho: opt.forWho, logo: opt.logo, register: opt.register, locMaps: opt.locMaps, lookup: opt.lookup, links: opt.links })); } catch (e) { /* private mode */ } // a work pack keeps the PDF report's own choices
         close(); GC.busy('Creating the report…');
         build(list, opt, function (t) { GC.busy(t); }).then(function (r) {
           GC.busy(null);
