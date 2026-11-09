@@ -48,6 +48,60 @@
     return opts;
   }
 
+  /** Adds a category to an actions layer (or finds one of that name); returns it. */
+  function addCat(l, name) {
+    name = String(name || '').trim().slice(0, 40); if (!name) return null;
+    var cs = GC.camera.cats(l).map(function (c) { return Object.assign({}, c); });
+    var hit = cs.filter(function (c) { return c.name.toLowerCase() === name.toLowerCase(); })[0];
+    if (!hit) { hit = { id: 'c' + global.Ink.uid().slice(0, 8), name: name }; cs.push(hit); }
+    l.cats = cs; GC.markDirty(l.id);
+    return hit;
+  }
+  /** The categories of the actions: add, rename, delete (when no action uses it). Back to the register when done. */
+  function manageCats() {
+    var l = GC.camera.layer(true);
+    if (!l.cats) l.cats = GC.camera.cats(l).map(function (c) { return Object.assign({}, c); });
+    var count = function () { var n = {}; rows().forEach(function (x) { var k = x.w.cat || 'gen'; n[k] = (n[k] || 0) + 1; }); return n; };
+    GC.modal('<h2>Categories</h2><p class="sub">Every action has one: pick it on the camera sheet, a pin’s card or here in the register. Changes reach the whole team.</p><div class="list rg-cats" id="rgc-list"></div>' +
+      '<div class="rgc-add"><input type="text" id="rgc-new" placeholder="New category, e.g. Tree removal" maxlength="40" autocomplete="off"><button class="btn primary" id="rgc-addb">Add</button></div>' +
+      '<div class="actions"><button class="btn primary" data-a="ok">Done</button></div>',
+    function (el, close) {
+      var box = el.querySelector('#rgc-list'), paintCats = function () {
+        var n = count();
+        box.innerHTML = l.cats.map(function (c, i) {
+          var used = n[c.id] || 0;
+          return '<div class="item" data-i="' + i + '"><span class="rgc-sym">' + GC.camera.pinSvg(GC.camera.IMP[0].c, c) + '</span><input type="text" data-name value="' + esc(c.name) + '"' + (l.locked ? ' readonly' : '') + ' maxlength="40">' +
+            '<small>' + used + ' action' + (used === 1 ? '' : 's') + '</small>' +
+            (used || c.id === 'gen' || l.cats.length < 2 || l.locked ? '<span class="rgc-nodel" title="' + (used ? 'In use: move its actions to another category first' : c.id === 'gen' ? 'The default category' : '') + '"></span>' : '<button class="ib danger" data-del title="Delete category">' + GC.icon('trash') + '</button>') + '</div>';
+        }).join('');
+      };
+      paintCats();
+      var apply = function () { GC.renderLayer(l); GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(true); };
+      box.addEventListener('change', function (e) {
+        var it = e.target.closest('[data-i]'); if (!it || !e.target.hasAttribute('data-name')) return;
+        var i = +it.getAttribute('data-i'), v = e.target.value.trim();
+        if (!v) { e.target.value = l.cats[i].name; return; }
+        l.cats = l.cats.slice(); l.cats[i] = Object.assign({}, l.cats[i], { name: v }); apply();
+      });
+      box.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-del]'); if (!b) return;
+        var i = +b.closest('[data-i]').getAttribute('data-i'), c = l.cats[i];
+        if (st.cat === c.id) st.cat = '';
+        l.cats = l.cats.filter(function (x, j) { return j !== i; }); apply(); paintCats();
+        GC.toast('Category “' + c.name + '” deleted.');
+      });
+      var inp = el.querySelector('#rgc-new'), add = function () {
+        var v = inp.value.trim(); if (!v) { inp.focus(); return; }
+        var had = l.cats.length, c = addCat(l, v); apply(); paintCats(); inp.value = '';
+        GC.toast(l.cats.length > had ? 'Category “' + c.name + '” added.' : 'There is already a category “' + c.name + '”.');
+      };
+      el.querySelector('#rgc-addb').onclick = add;
+      inp.onkeydown = function (e) { if (e.key === 'Enter') add(); };
+      if (l.locked) { inp.disabled = true; el.querySelector('#rgc-addb').disabled = true; }
+      el.querySelector('[data-a=ok]').onclick = close;
+    }, function () { setTimeout(open, 0); });
+  }
+
   function open() {
     if (!GC.project || !GC.camera) return;
     if (GC.ui) GC.ui.close();
@@ -55,7 +109,7 @@
     var H = [['', '<button class="rg-sel" id="rg-all" aria-pressed="false" title="Select all shown" aria-label="Select all shown"><i></i></button>'], ['', 'Photo'], ['name', 'Action'], ['cat', 'Category'], ['imp', 'Importance'], ['taken', 'Taken'], ['chk', 'Checked'], ['', 'Note'], ['', '']];
     GC.modal('<div class="rg"><div class="rg-top"><h2>Actions register <small id="rg-count"></small></h2>' +
       '<div class="rg-tools"><input type="search" id="rg-q" placeholder="Search name, note, who checked…" value="' + esc(st.q) + '">' +
-      '<div class="rg-strip"><select id="rg-cat">' + catOptions(st.cat, true) + '</select>' +
+      '<div class="rg-strip"><select id="rg-cat">' + catOptions(st.cat, true) + '<option value="__cats">+ Add or edit categories…</option></select>' +
       '<select id="rg-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === st.min ? ' selected' : '') + '>' + (i === 0 ? 'All importance' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="seg small" id="rg-chk"><button data-c="all">All</button><button data-c="todo">To check</button><button data-c="done">Checked</button></div></div>' +
       '<div class="rg-strip"><button class="btn primary" id="rg-new">+ New action</button><button class="btn" id="rg-pdf">PDF report</button><button class="btn" id="rg-pack" title="A PDF for a contractor (e.g. the arborist): register, location maps, addresses, map links">Work pack</button><button class="btn" id="rg-photos">Export photos</button><button class="btn" id="rg-csv">Export CSV</button></div></div></div>' +
@@ -77,7 +131,7 @@
           '<button class="rg-sel" data-k="sel" aria-pressed="' + !!st.sel[rowKey(x)] + '" title="Select for a report or export" aria-label="Select ' + esc(w.name || 'action') + '"><i></i></button>' +
           '<button class="rg-ph" data-k="view" aria-label="Open the photo">' + (ph ? '<img data-ph="' + esc(ph.id) + '" alt="">' : w.sketch ? '<img class="rg-ink" src="' + cam.sketchThumb(w, 96) + '" alt="">' : '<span class="rg-glyph">' + cam.pinSvg(imp.c, cam.catOf(x.l, w)) + '</span>') + (w.photos && w.photos.length > 1 ? '<em>' + w.photos.length + '</em>' : '') + '</button>' +
           '<span class="rg-name"><b>' + esc(w.name || 'Action') + '</b><small><span class="rg-kind">' + esc(kd.k) + '</span>' + esc((kd.size ? kd.size + ' · ' : '') + x.l.name) + '</small></span>' +
-          '<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cam.cats(x.l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' +
+          '<select data-k="cat"' + (ro ? ' disabled' : '') + '>' + cam.cats(x.l).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === (w.cat || 'gen') ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + (ro ? '' : '<option value="__new">+ New category…</option>') + '</select>' +
           '<select data-k="imp" class="rg-imp"' + (ro ? ' disabled' : '') + '>' + IMP.map(function (m, k) { return '<option value="' + k + '"' + (k === (w.imp | 0) ? ' selected' : '') + '>' + m.n + '</option>'; }).join('') + '</select>' +
           '<span class="rg-taken" title="When the photo was taken">' + esc(short(cam.taken(w))) + '</span>' +
           '<span class="rg-chkcell"><button class="rg-tick" data-k="chk" aria-pressed="' + !!w.chk + '"' + (ro ? ' disabled' : '') + ' title="Checked" aria-label="Checked"><i></i></button>' +
@@ -105,6 +159,15 @@
       bodyEl.addEventListener('change', function (e) {
         var r = e.target.closest('.rg-row'); if (!r) return;
         var x = list[+r.getAttribute('data-i')], k = e.target.getAttribute('data-k'), w = x.w;
+        if (k === 'cat' && e.target.value === '__new') { // a new category, straight onto this action
+          var sel = e.target; sel.value = w.cat || 'gen';
+          GC.prompt('New category', '', 'e.g. Tree removal, Fencing', 'Add').then(function (v) {
+            var c = v && addCat(x.l, v); if (!c) return;
+            w.cat = c.id; GC.renderLayer(x.l); GC.markDirty(x.l.id); GC.refreshLayers(true);
+            GC.toast('“' + (w.name || 'Action') + '” is now “' + c.name + '”.'); open();
+          });
+          return;
+        }
         if (k === 'cat') w.cat = e.target.value;
         if (k === 'imp') { w.imp = +e.target.value; r.style.setProperty('--ic', cam.impOf(w).c); }
         GC.renderLayer(x.l); GC.markDirty(x.l.id); GC.refreshLayers(true);
@@ -130,7 +193,7 @@
         paint();
       });
       q('#rg-q').oninput = function () { st.q = q('#rg-q').value; paint(); };
-      q('#rg-cat').onchange = function () { st.cat = q('#rg-cat').value; paint(); };
+      q('#rg-cat').onchange = function () { if (q('#rg-cat').value === '__cats') { q('#rg-cat').value = st.cat; manageCats(); return; } st.cat = q('#rg-cat').value; paint(); };
       q('#rg-min').onchange = function () { st.min = +q('#rg-min').value; paint(); };
       q('#rg-chk').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; st.chk = b.getAttribute('data-c'); paint(); };
       q('#rg-all').onclick = function () { var on = q('#rg-all').getAttribute('aria-pressed') !== 'true'; list.forEach(function (x) { if (on) st.sel[rowKey(x)] = 1; else delete st.sel[rowKey(x)]; }); paint(); };
@@ -242,5 +305,5 @@
   }
 
   if ($('btn-photos')) $('btn-photos').onclick = open;
-  GC.register = { open: open, newMenu: newMenu, exportPhotos: exportPhotos, photoFiles: photoFiles, rows: rows, csv: function () { return csv(filtered()); } };
+  GC.register = { open: open, manageCats: manageCats, addCat: addCat, newMenu: newMenu, exportPhotos: exportPhotos, photoFiles: photoFiles, rows: rows, csv: function () { return csv(filtered()); } };
 })(window);

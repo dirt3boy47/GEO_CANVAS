@@ -856,3 +856,13 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 .st-tw.open svg { -webkit-transform: rotate(90deg); transform: rotate(90deg); }
 .st-node[hidden], .st-kids[hidden] { display: none; }
 .ws-gone { color: #b06000; font-weight: 650; }
+
+/* ---------- categories (register) ---------- */
+.rg-cats { max-height: 50vh; overflow: auto; }
+.rg-cats .item { display: flex; align-items: center; gap: 8px; }
+.rg-cats input[data-name] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; font: inherit; }
+.rg-cats small { color: var(--muted); white-space: nowrap; min-width: 64px; text-align: right; }
+.rgc-sym svg { width: 26px; height: 32px; display: block; }
+.rgc-nodel { width: 36px; flex: none; }
+.rgc-add { display: flex; gap: 8px; margin: 10px 0 4px; }
+.rgc-add input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; font: inherit; }
