@@ -97,6 +97,32 @@
     if (urls[id]) return Promise.resolve(urls[id]);
     return blob(id).then(function (b) { if (!b) return null; urls[id] = URL.createObjectURL(b); return urls[id]; });
   }
+  /**
+   * A small copy of a photo for lists, grids and strips (longest side `size` px). A full photo takes ~12 MB of memory
+   * once shown; a list of them is what makes an iPhone close the page. Made one at a time and kept for the session.
+   */
+  var thumbs = {}, tq = Promise.resolve();
+  function thumb(id, size) {
+    size = size || 240; var key = id + ':' + size;
+    if (thumbs[key]) return thumbs[key];
+    var p = tq.then(function () { return blob(id); }).then(function (b) {
+      if (!b) return null;
+      return new Promise(function (res) {
+        var src = URL.createObjectURL(b), img = new Image();
+        var done = function (u) { img.onload = img.onerror = null; img.removeAttribute('src'); URL.revokeObjectURL(src); res(u); };
+        img.onload = function () {
+          var k = Math.min(1, size / Math.max(img.naturalWidth, img.naturalHeight)), cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(img.naturalWidth * k)); cv.height = Math.max(1, Math.round(img.naturalHeight * k));
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cv.toBlob(function (t) { var u = t ? URL.createObjectURL(t) : null; cv.width = cv.height = 0; done(u); }, 'image/jpeg', 0.8);
+        };
+        img.onerror = function () { done(null); };
+        img.src = src;
+      });
+    });
+    tq = p.catch(function () {}); thumbs[key] = p; p.then(function (u) { if (!u) delete thumbs[key]; });
+    return p;
+  }
 
   // ---------- exporting: named files that carry their date, place and name ----------
   /** A safe file name from an action's name: "Defect 01.jpg", or "Defect 01 (2).jpg" for its second photo. */
@@ -177,7 +203,7 @@
     box.innerHTML = refs.map(function (r, i) { return '<button class="ph-th" data-i="' + i + '" aria-label="Photo ' + (i + 1) + '"><span class="ph-load"></span></button>'; }).join('') +
       (opts.onAdd ? '<button class="ph-add" data-add="1"><svg><use xlink:href="#i-camera"/></svg><span>' + (refs.length ? 'Add' : 'Add photo') + '</span></button>' : '');
     refs.forEach(function (r, i) {
-      url(r.id).then(function (u) {
+      thumb(r.id, 240).then(function (u) {
         var b = box.querySelector('[data-i="' + i + '"]'); if (!b) return;
         b.innerHTML = u ? '<img src="' + u + '" alt="">' : '<span class="ph-miss" title="Not on this device yet">⌛</span>';
       });
@@ -237,5 +263,5 @@
     return ids;
   }
 
-  GC.photos = { pick: pick, ingest: ingest, strip: strip, view: view, url: url, blob: blob, file: file, refsIn: refsIn, exif: exif, fileName: fileName, exportBlob: exportBlob };
+  GC.photos = { pick: pick, ingest: ingest, strip: strip, view: view, url: url, thumb: thumb, blob: blob, file: file, refsIn: refsIn, exif: exif, fileName: fileName, exportBlob: exportBlob };
 })(window);

@@ -890,8 +890,30 @@
     if (Store.isMemoryOnly()) n.innerHTML = '<b style="color:var(--danger)">Private browsing: nothing is saved after Safari closes.</b> Open GeoCanvas in a normal tab.';
     else n.textContent = 'Projects save automatically on this iPad. Safari can clear website data, so add GeoCanvas to the Home Screen and make backups of important work.';
   }
+  // ---------- safe start: if the page closed while opening (an iPhone out of memory), the next start pauses heavy layers ----------
+  var BOOT = 'gc.booting';
+  function booting(on) { try { if (on) localStorage.setItem(BOOT, String(Date.now())); else localStorage.removeItem(BOOT); } catch (e) { /* ignore */ } }
+  function safeBar() {
+    var n = Object.keys(GC.paused || {}).length; if (!n) return;
+    var bar = document.createElement('div'); bar.id = 'safe-bar'; bar.className = 'panel';
+    bar.innerHTML = '<div><b>Safe start</b><small>' + (GC.safeWhy === 'crash' ? 'GeoCanvas closed while opening last time (the device probably ran out of memory). ' : 'Started with ?safe. ') + n + ' heavy layer' + (n === 1 ? ' is' : 's are') + ' paused on this device: drawings, maps and plans.</small></div><button class="btn primary" id="safe-show">Show them</button><button class="ib" id="safe-x" aria-label="Close">' + GC.icon('close') + '</button>';
+    document.body.appendChild(bar);
+    var close = function () { if (bar.parentNode) bar.parentNode.removeChild(bar); };
+    $('safe-x').onclick = close;
+    $('safe-show').onclick = function () {
+      close(); booting(true); setTimeout(function () { booting(false); }, 20000); // if they are what closed it, the next start is safe again
+      var ids = Object.keys(GC.paused); GC.safeMode = false; GC.paused = {};
+      ids.forEach(function (id) { var l = GC.layerById(id); if (l) GC.renderLayer(l); });
+      GC.applyLayerState(); GC.refreshLayers();
+    };
+  }
   function boot() {
     try { Geo.init(); } catch (e) { GC.toast('Coordinate systems failed to load: ' + e.message, 'err'); }
+    var crashed = false; try { crashed = !!localStorage.getItem(BOOT); } catch (e) { /* ignore */ }
+    GC.safeMode = crashed || /[?&]safe\b/.test(location.search); GC.safeWhy = crashed ? 'crash' : 'url'; GC.paused = {};
+    booting(true); // cleared once the app has been open a while, or is closed or put away normally
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') booting(false); });
+    window.addEventListener('pagehide', function () { booting(false); });
     GC.setMode('nav');
     Store.open().then(function () {
       storageNote();
@@ -903,6 +925,8 @@
       });
     }).then(function (p) {
       GC.openProject(p);
+      setTimeout(function () { booting(false); }, 20000);
+      if (GC.safeMode) { GC.safeMode = false; safeBar(); } // only the project being opened: new imports show as usual
       if (window.matchMedia && window.matchMedia('(max-width: 700px)').matches) document.body.classList.add('no-sidebar');
       try { if (!localStorage.getItem('gc.welcomed')) { localStorage.setItem('gc.welcomed', '1'); welcome(); } } catch (e) { /* ignore */ }
     }).catch(function (e) {

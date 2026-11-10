@@ -866,3 +866,8 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 .rgc-nodel { width: 36px; flex: none; }
 .rgc-add { display: flex; gap: 8px; margin: 10px 0 4px; }
 .rgc-add input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: inherit; font: inherit; }
+
+/* ---------- safe start (js/panels.js) ---------- */
+#safe-bar { position: fixed; z-index: 1200; left: 50%; top: calc(64px + var(--safe-t)); -webkit-transform: translateX(-50%); transform: translateX(-50%); width: min(560px, calc(100% - 16px)); display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-left: 4px solid #f9ab00; }
+#safe-bar > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#safe-bar small { color: var(--muted); line-height: 1.3; }

@@ -296,6 +296,7 @@
     var cad = l.kind === 'libmap' ? (GC.mymaps.get(l.ref) || {}).cad : l.cad;
     if (!cad) { GC.toast('This drawing is not loaded.', 'warn'); return; }
     var names = cad.layers || [], d = GC.cad.decode(cad), count = {};
+    if (GC.cad.release) GC.cad.release(cad); // kept by this sheet only
     d.lines.forEach(function (x) { if (x.ly >= 0) count[x.ly] = (count[x.ly] || 0) + 1; });
     var idx = Object.keys(count).map(Number).sort(function (a, b) { return String(names[a]).localeCompare(String(names[b])); });
     if (!names.length || !idx.length) { GC.toast('This drawing was imported before its DXF layers were kept: import it again to choose its alignment layer.', 'warn', 8000); return; }

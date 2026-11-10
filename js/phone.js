@@ -190,7 +190,7 @@
         (cam && cam.isPhotoPt(x.l, x.w) ? '<span class="pp-imp">' + esc(imp.n) + '</span>' : '') + (x.w.photos && x.w.photos.length > 1 ? '<span class="pp-more">' + x.w.photos.length + '</span>' : '') + (x.w.chk ? '<span class="pp-chk" title="' + esc(cam.checkedText(x.w)) + '">✓</span>' : '') + '</div>' +
         '<b>' + esc(x.w.name || 'Action') + '</b><small>' + esc((kd.k !== 'Photo' ? kd.k + (kd.size ? ' ' + kd.size : '') + ' · ' : '') + (c ? c.name + ' · ' : '') + ago(x.w.time) + (x.d != null ? ' · ' + (x.d < 3 ? 'here' : GC.fmtDist(x.d)) : '')) + '</small></button>';
     }).join('');
-    [].forEach.call(grid.querySelectorAll('img[data-ph]'), function (im) { GC.photos.url(im.getAttribute('data-ph')).then(function (u) { if (u) im.src = u; }); });
+    [].forEach.call(grid.querySelectorAll('img[data-ph]'), function (im) { GC.photos.thumb(im.getAttribute('data-ph'), 360).then(function (u) { if (u) im.src = u; }); });
     [].forEach.call(grid.querySelectorAll('.pp-tile'), function (t) {
       t.onclick = function () {
         var x = shown[+t.getAttribute('data-i')]; tab('map');

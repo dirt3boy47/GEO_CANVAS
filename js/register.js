@@ -151,7 +151,7 @@
         var keep = {}; rows().forEach(function (x) { if (st.sel[rowKey(x)]) keep[rowKey(x)] = 1; }); st.sel = keep; // forget deleted actions
         list = filtered();
         bodyEl.innerHTML = list.length ? list.map(rowHtml).join('') : '<p class="rg-empty">' + (rows().length ? 'No photos match.' : 'No photos yet. Tap Camera to take the first one.') + '</p>';
-        [].forEach.call(bodyEl.querySelectorAll('img[data-ph]'), function (im) { GC.photos.url(im.getAttribute('data-ph')).then(function (u) { if (u) im.src = u; }); });
+        [].forEach.call(bodyEl.querySelectorAll('img[data-ph]'), function (im) { GC.photos.thumb(im.getAttribute('data-ph'), 160).then(function (u) { if (u) im.src = u; }); });
         [].forEach.call(q('.rg-head').querySelectorAll('[data-s]'), function (h) { h.classList.toggle('on', h.getAttribute('data-s') === st.sort); h.setAttribute('data-dir', st.dir > 0 ? '▲' : '▼'); });
         [].forEach.call(q('#rg-chk').children, function (b) { b.classList.toggle('on', b.getAttribute('data-c') === st.chk); });
         paintCount(); paintSel();

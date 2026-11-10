@@ -422,20 +422,26 @@
     if (!GC.project) return null;
     GC.project.layers.forEach(function (l) {
       if (l.kind !== 'cad' || !l.visible) return;
-      var S = view.getSouth(), N = view.getNorth(), W = view.getWest(), E = view.getEast();
+      // the drawing as the map holds it (mercator, with each line's box): no second copy in memory
+      var P = GC.cadPrep ? GC.cadPrep(l.cad) : null; if (!P) return;
+      var nw = Geo.merc(view.getWest(), view.getNorth()), se = Geo.merc(view.getEast(), view.getSouth()), vb = [nw[0], nw[1], se[0], se[1]];
+      var ws = 256 * Math.pow(2, map.getZoom()), ref = map.latLngToContainerPoint(view.getCenter()), rm = Geo.merc(view.getCenter().lng, view.getCenter().lat);
+      var ox = ref.x - rm[0] * ws, oy = ref.y - rm[1] * ws;
       var names = l.cad.layers || [], off = l.cadOff || {};
-      decode(l.cad).lines.forEach(function (ln) {
+      P.lines.forEach(function (ln) {
         if (ln.ly >= 0 && off[names[ln.ly]]) return; // switched off in the drawing's layers
-        var a = ln.p;
-        for (var k = 0; k < a.length; k += 2) {
-          if (a[k + 1] < S || a[k + 1] > N || a[k] < W || a[k] > E) continue;
-          var q = map.latLngToContainerPoint([a[k + 1], a[k]]), dd = Math.hypot(q.x - p.x, q.y - p.y);
-          if (dd < bd) { bd = dd; best = L.latLng(a[k + 1], a[k]); }
+        var b = ln.b; if (b[2] < vb[0] || b[0] > vb[2] || b[3] < vb[1] || b[1] > vb[3]) return;
+        var m = ln.m;
+        for (var k = 0; k < m.length; k += 2) {
+          var qx = m[k] * ws + ox, qy = m[k + 1] * ws + oy, dd = Math.hypot(qx - p.x, qy - p.y);
+          if (dd < bd) { bd = dd; var u = Geo.unmerc(m[k], m[k + 1]); best = L.latLng(u[1], u[0]); }
         }
       });
     });
     return best;
   }
 
-  GC.cad = { importDxf: importDxf, parse: parse, geometry: geometry, snap: snap, ACI: ACI, decode: decode, counts: counts, build: build };
+  /** Forgets a drawing's decoded copy (it is rebuilt when asked for again). */
+  function release(cad) { decoded.delete(cad); }
+  GC.cad = { importDxf: importDxf, parse: parse, geometry: geometry, snap: snap, ACI: ACI, decode: decode, release: release, counts: counts, build: build };
 })(window);

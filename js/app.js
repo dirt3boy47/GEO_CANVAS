@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-11-09.3' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-10.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -399,7 +399,8 @@
     out.lines = dc.lines.map(function (ln) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: ln.c, ly: ln.ly, m: merc(ln.p, b), b: b }; });
     out.fills = dc.fills.map(function (f) { var b = [Infinity, Infinity, -Infinity, -Infinity]; return { c: f.c, ly: f.ly, s: f.s, r: f.r.map(function (p) { return merc(p, b); }), b: b }; });
     out.texts = (c.texts || []).map(function (t) { return { c: t[0], m: Geo.merc(t[1], t[2]), lat: t[2], h: t[3], r: t[4], ax: t[5], ay: t[6], s: t[7], ly: t[8] != null ? t[8] : -1 }; });
-    cadPreps.set(c, out); return out;
+    cadPreps.set(c, out); if (GC.cad.release) GC.cad.release(c); // the map draws from this copy: don't keep the decoded one too
+    return out;
   }
   /** Paints a CAD drawing into a 2D context whose pixels are mercator × ws − (ox, oy); w × h is the area to fill.
       Used for the map and for PDF maps. l: the layer's options (cad, mono, hideFills, cadOff, showText). */
@@ -447,9 +448,12 @@
   GC.cadPrep = cadPrep; GC.cadPaint = cadPaint;
 
   /** (Re)creates the Leaflet layers of any layer. */
+  /** Layers that can take a lot of memory: paused on a safe start (see js/panels.js). */
+  function heavy(l) { return /^(cad|geopdf|raster|service|libmap)$/.test(l.kind) || (l.kind === 'vector' && (l.geojson.features || []).length > 3000); }
   GC.renderLayer = function (l) {
     var v = ensureView(l);
     v.group.clearLayers(); v.paths = {}; v.objs = {}; v.markers = {}; v.trackLines = {};
+    if ((GC.safeMode && heavy(l)) || (GC.paused && GC.paused[l.id])) { GC.paused[l.id] = 1; return; } // until “Show them”
     if (l.kind === 'drawing') { GC.syncDrawing(l); return; }
     if (l.kind === 'libmap') { // a map from My maps: drawn from the library's copy
       var src = GC.mymaps && GC.mymaps.get(l.ref);
@@ -762,7 +766,7 @@
       };
     });
   }
-  function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : ''); }
+  function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : '') + (GC.paused && GC.paused[l.id] ? ' · paused (safe start)' : ''); }
   var shownLimit = {}; // "layer:folder" → rows shown in very large folders
   var GEOM_ICON = { Point: 'gpt', MultiPoint: 'gpt', LineString: 'gline', MultiLineString: 'gline', Polygon: 'gpoly', MultiPolygon: 'gpoly' };
   function treeRows(l, nodes, depth, off, out, key) {

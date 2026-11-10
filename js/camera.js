@@ -207,7 +207,7 @@
       var thumb = el.querySelector('.cam-thumb'), img = thumb.querySelector('img');
       var paintPh = function () {
         thumb.classList.toggle('empty', !st.photos.length);
-        if (st.photos.length) GC.photos.url(st.photos[0].id).then(function (u) { if (u) img.src = u; });
+        if (st.photos.length) GC.photos.thumb(st.photos[0].id, 360).then(function (u) { if (u) img.src = u; });
       };
       paintPh();
       thumb.querySelector('.cam-addph').onclick = function () { GC.photos.pick().then(function (more) { if (more.length) { st.photos = st.photos.concat(more); paintPh(); } }); };
@@ -341,7 +341,7 @@
     ck.onclick = function () { setChecked(l, w, !w.chk); paintCk(); if (onChange) onChange(); };
     if (ph) {
       var hero = d.querySelector('.cam-hero');
-      GC.photos.url(ph.id).then(function (u) { if (u) hero.firstChild.src = u; });
+      GC.photos.thumb(ph.id, 900).then(function (u) { if (u) hero.firstChild.src = u; });
       hero.onclick = function () { GC.photos.view(w.photos, 0, null, { name: w.name, lat: w.lat, lon: w.lon, note: w.note }); };
     }
     [].forEach.call(d.querySelectorAll('select'), function (s) {
