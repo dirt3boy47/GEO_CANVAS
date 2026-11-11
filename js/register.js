@@ -112,7 +112,7 @@
       '<div class="rg-strip"><select id="rg-cat">' + catOptions(st.cat, true) + '<option value="__cats">+ Add or edit categories…</option></select>' +
       '<select id="rg-min">' + IMP.map(function (m, i) { return '<option value="' + i + '"' + (i === st.min ? ' selected' : '') + '>' + (i === 0 ? 'All importance' : i === 4 ? 'Critical only' : m.n + ' and above') + '</option>'; }).join('') + '</select>' +
       '<div class="seg small" id="rg-chk"><button data-c="all">All</button><button data-c="todo">To check</button><button data-c="done">Checked</button></div></div>' +
-      '<div class="rg-strip"><button class="btn primary" id="rg-new">+ New action</button><button class="btn" id="rg-pdf">PDF report</button><button class="btn" id="rg-pack" title="A PDF for a contractor (e.g. the arborist): register, location maps, addresses, map links">Work pack</button><button class="btn" id="rg-photos">Export photos</button><button class="btn" id="rg-csv">Export CSV</button></div></div></div>' +
+      '<div class="rg-strip"><button class="btn primary" id="rg-new">+ New action</button><button class="btn" id="rg-pdf">PDF report</button><button class="btn" id="rg-pack" title="A PDF for a contractor (e.g. the arborist): register, location maps, addresses, map links">Work pack</button><button class="btn" id="rg-photos">Export photos</button><button class="btn" id="rg-csv">Export CSV</button><button class="btn" id="rg-kmz" title="The shown (or selected) actions for Google Earth">Export KMZ</button></div></div></div>' +
       '<div class="rg-table" role="table"><div class="rg-row rg-head" role="row">' + H.map(function (h) { return '<span role="columnheader"' + (h[0] ? ' data-s="' + h[0] + '"' : '') + '>' + h[1] + '</span>'; }).join('') + '</div><div id="rg-body"></div></div>' +
       // the selection shows here, in the footer that is always there, so selecting never moves the list under your finger
       '<div class="actions rg-foot"><span class="hint" id="rg-hint">Tick the first column to choose actions for a report or export; tick Checked once an action has been checked.</span>' +
@@ -198,12 +198,18 @@
       q('#rg-chk').onclick = function (e) { var b = e.target.closest('[data-c]'); if (!b) return; st.chk = b.getAttribute('data-c'); paint(); };
       q('#rg-all').onclick = function () { var on = q('#rg-all').getAttribute('aria-pressed') !== 'true'; list.forEach(function (x) { if (on) st.sel[rowKey(x)] = 1; else delete st.sel[rowKey(x)]; }); paint(); };
       q('#rg-selclear').onclick = function () { st.sel = {}; paint(); };
-      q('#rg-pack').onclick = function () {
-        var t = target(); if (!t.length) { GC.toast('Nothing to put in a work pack: no actions are shown.', 'warn'); return; }
+      var what = function (t) { // what the shown actions are, for a title: their one category, else the search
         var cats = {}; t.forEach(function (x) { cats[catName(x) || 'General'] = 1; });
         var names = Object.keys(cats);
-        var what = names.length === 1 && names[0] !== 'General' ? names[0] : st.q.trim() ? st.q.trim().charAt(0).toUpperCase() + st.q.trim().slice(1) : '';
-        if (GC.report) GC.report.open(t, describeFilter(Object.keys(st.sel).length), { pack: true, title: (what ? what + ' work pack' : 'Work pack') });
+        return names.length === 1 && names[0] !== 'General' ? names[0] : st.q.trim() ? st.q.trim().charAt(0).toUpperCase() + st.q.trim().slice(1) : '';
+      };
+      q('#rg-pack').onclick = function () {
+        var t = target(); if (!t.length) { GC.toast('Nothing to put in a work pack: no actions are shown.', 'warn'); return; }
+        var w = what(t); if (GC.report) GC.report.open(t, describeFilter(Object.keys(st.sel).length), { pack: true, title: (w ? w + ' work pack' : 'Work pack') });
+      };
+      q('#rg-kmz').onclick = function () {
+        var t = target(); if (!t.length) { GC.toast('Nothing to export: no actions are shown.', 'warn'); return; }
+        if (GC.report) GC.report.openKmz(t, describeFilter(Object.keys(st.sel).length), what(t) || 'Actions');
       };
       q('#rg-pdf').onclick = function () { var t = target(); if (!t.length) { GC.toast('Nothing to report: no actions are shown.', 'warn'); return; } if (GC.report) GC.report.open(t, describeFilter(Object.keys(st.sel).length)); };
       q('#rg-csv').onclick = function () { GC.saveBlob(new Blob([csv(target())], { type: 'text/csv' }), (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' actions register.csv'); };

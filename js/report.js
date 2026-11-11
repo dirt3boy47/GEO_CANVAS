@@ -376,7 +376,104 @@
       // page numbers
       var total = doc.pages.length;
       doc.pages.forEach(function (p, i) { doc.p = p; var s2 = 'Page ' + (i + 1) + ' of ' + total; doc.text(W - M - textWidth(s2, 8), H - 22, s2, 8, false, '#5f6368'); doc.text(M, H - 22, 'GeoCanvas', 8, false, '#9aa0a6'); });
-      return { blob: doc.blob(opt.title), pages: total, items: items.length, missing: missing, map: !!ov, mapBg: ov && ov.bg, where: where };
+      return { blob: doc.blob(opt.title), pages: total, items: items.length, missing: missing, map: !!ov, mapBg: ov && ov.bg, where: where, rows: items.map(function (it) { return it.x; }), numbers: items.map(function (it) { return it.n; }) };
+    });
+  }
+
+  // ---------- the same actions for Google Earth (KMZ: numbered pins, photos in the balloons; KML: no files) ----------
+  function cachedAddress(lat, lon) { return addrCache()[lat.toFixed(5) + ',' + lon.toFixed(5)] || null; }
+  /** A numbered round pin (PNG, base64) in the importance colour, like the PDF's. */
+  function pinPng(n, col) {
+    var cv = document.createElement('canvas'), k = 2, r = 15; cv.width = cv.height = (r * 2 + 6) * k;
+    var x = cv.getContext('2d'); x.scale(k, k);
+    x.beginPath(); x.arc(r + 3, r + 3, r + 2, 0, 7); x.fillStyle = '#fff'; x.fill();
+    x.beginPath(); x.arc(r + 3, r + 3, r, 0, 7); x.fillStyle = col; x.fill();
+    x.fillStyle = '#fff'; x.font = 'bold ' + (String(n).length > 2 ? 11 : 14) + 'px Helvetica, Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(String(n), r + 3, r + 3.5);
+    return cv.toDataURL('image/png').split(',')[1];
+  }
+  /**
+   * list: register rows. opt: { title, kml (no photos, no files), numbers ([n] per row, like the PDF), where ({n: {addr, lot}}) }.
+   * Resolves to { blob, name, photos, missing }.
+   */
+  function kmz(list, opt) {
+    opt = opt || {};
+    var E = global.Exporters, cam = GC.camera, e = E.kmlEsc, zip = opt.kml ? null : new global.JSZip(), files = zip && zip.folder('files');
+    var folders = {}, order = [], photos = 0, missing = 0, title = opt.title || 'Actions';
+    var jobs = list.map(function (x, i) {
+      var w = x.w, n = opt.numbers ? opt.numbers[i] : i + 1, c = cam.catOf(x.l, w), cn = c ? c.name : 'General', imp = cam.impOf(w), kd = cam.kindOf(w);
+      var wh = (opt.where && opt.where[n]) || {}, addr = wh.addr || cachedAddress(w.lat, w.lon), lot = wh.lot;
+      var refs = opt.kml ? [] : (w.photos || []).slice(0, 8);
+      return Promise.all(refs.map(function (r) { return GC.photos.blob(r.id).then(function (b) { if (!b) { missing++; return null; } files.file(r.id + '.jpg', b); photos++; return r.id; }, function () { missing++; return null; }); })).then(function (ids) {
+        ids = ids.filter(Boolean);
+        var mga = Geo.fmt([w.lon, w.lat], 'mga').replace(/\s+/g, ' '), rows = [['Category', cn], ['Importance', imp.n], [ (w.photos && w.photos.length) ? 'Taken' : 'Created', GC.fmtTime(cam.taken(w))],
+          ['Checked', w.chk ? 'Yes — ' + w.chk.by + ', ' + GC.fmtTime(w.chk.t) : 'Not yet']];
+        if (addr) rows.push(['Address', (addr.near ? 'Near ' : '') + addr.t]);
+        if (lot) rows.push(['Lot', lot.none ? 'No lot (road reserve or unparcelled)' : lot.lot + (lot.tenure ? ' · ' + lot.tenure : '')]);
+        rows.push(['Location', w.lat.toFixed(6) + ', ' + w.lon.toFixed(6)], ['MGA2020', mga]);
+        if (kd.size) rows.push([kd.k === 'Area' || kd.k === 'Drawing' ? kd.k : 'Length', kd.size]);
+        var html = '<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px">' +
+          '<table style="font-size:13px;border-collapse:collapse">' + rows.map(function (r) { return '<tr><td style="color:#5f6368;padding:2px 10px 2px 0;vertical-align:top"><b>' + e(r[0]) + '</b></td><td style="padding:2px 0">' + e(r[1]) + '</td></tr>'; }).join('') + '</table>' +
+          (w.note ? '<p style="font-size:13px"><b>Comments</b><br>' + e(w.note).replace(/\n/g, '<br>') + '</p>' : '') +
+          ids.map(function (id) { return '<p><img src="files/' + e(id) + '.jpg" width="480"></p>'; }).join('') +
+          '<p style="font-size:13px"><a href="' + e(mapsUrl(w.lat, w.lon)) + '">Open in Google Maps</a> · <a href="' + e(dirUrl(w.lat, w.lon)) + '">Directions</a></p></div>';
+        var icon = opt.kml ? '<Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>' : '<Icon><href>files/pin-' + n + '.png</href></Icon><hotSpot x="0.5" y="0.5" xunits="fraction" yunits="fraction"/>';
+        if (!opt.kml) files.file('pin-' + n + '.png', pinPng(n, imp.c), { base64: true });
+        var shp = cam.shapeOf(w), pt = '<Point><coordinates>' + w.lon + ',' + w.lat + ',0</coordinates></Point>';
+        var geom = shp ? '<MultiGeometry>' + pt + E.kmlGeom(w.sketch ? { type: 'LineString', coordinates: shp.coordinates[0] } : shp) + '</MultiGeometry>' : pt;
+        var data = { number: n, category: cn, importance: imp.n, checked: w.chk ? 'yes' : 'no', checked_by: w.chk ? w.chk.by : '', taken: new Date(cam.taken(w)).toISOString(), mga2020: mga, address: addr ? addr.t : '', lot: lot && !lot.none ? lot.lp : '', comments: w.note || '', type: kd.k };
+        var pm = '<Placemark><name>' + e(n + '. ' + (w.name || 'Action')) + '</name><description>' + E.cdata(html) + '</description>' +
+          '<Style><IconStyle>' + (opt.kml ? '<color>' + E.kmlColor(imp.c, 1) + '</color>' : '') + '<scale>' + (opt.kml ? 1.1 : 1.2) + '</scale>' + icon + '</IconStyle><LabelStyle><scale>0.85</scale></LabelStyle>' +
+          '<LineStyle><color>' + E.kmlColor(imp.c, 1) + '</color><width>3</width></LineStyle><PolyStyle><color>' + E.kmlColor(imp.c, 0.25) + '</color></PolyStyle></Style>' +
+          '<ExtendedData>' + Object.keys(data).filter(function (k) { return data[k] !== ''; }).map(function (k) { return '<Data name="' + k + '"><value>' + e(data[k]) + '</value></Data>'; }).join('') + '</ExtendedData>' + geom + '</Placemark>\n';
+        if (!folders[cn]) { folders[cn] = []; order.push(cn); }
+        folders[cn][i] = pm;
+      });
+    });
+    return Promise.all(jobs).then(function () {
+      var doc = '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>' + e(title) + '</name>' +
+        '<description>' + e((GC.project && GC.project.name ? GC.project.name + ' · ' : '') + list.length + ' action' + (list.length === 1 ? '' : 's') + ' · exported from GeoCanvas ' + new Date().toLocaleDateString('en-AU')) + '</description>\n' +
+        order.map(function (cn) { return '<Folder><name>' + e(cn) + '</name><open>1</open>\n' + folders[cn].filter(Boolean).join('') + '</Folder>\n'; }).join('') + '</Document></kml>\n';
+      var base = ((GC.project && GC.project.name) || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' ' + title.replace(/[^\w\- ]+/g, '').trim() + ' ' + new Date().toISOString().slice(0, 10);
+      if (opt.kml) return { blob: new Blob([doc], { type: 'application/vnd.google-earth.kml+xml' }), name: base + '.kml', photos: 0, missing: 0 };
+      zip.file('doc.kml', doc);
+      return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.google-earth.kmz' }).then(function (b) { return { blob: b, name: base + '.kmz', photos: photos, missing: missing }; });
+    });
+  }
+  /** From the register bar: the shown (or selected) actions as a Google Earth file. */
+  function openKmz(list, scope, title) {
+    var withPh = list.filter(function (x) { return x.w.photos && x.w.photos.length; }).length;
+    GC.modal('<h2>Google Earth (KMZ / KML)</h2><p class="sub">' + list.length + ' action' + (list.length === 1 ? '' : 's') + ' (' + esc(scope || 'All actions') + '): numbered pins in their importance colours, a folder per category; tap a pin for its details, comments' + (withPh ? ', photos' : '') + ' and a Google Maps link.</p>' +
+      '<label class="field">Title<input type="text" id="kz-title" value="' + esc(title || 'Actions') + '"></label>' +
+      '<div class="seg small" id="kz-fmt"><button data-f="kmz" class="on">KMZ, with photos</button><button data-f="kml">KML, no photos (small)</button></div>' +
+      '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Create file</button></div>',
+    function (el, close) {
+      var f = 'kmz', q = function (x) { return el.querySelector(x); };
+      q('#kz-fmt').onclick = function (ev) { var b = ev.target.closest('[data-f]'); if (!b) return; f = b.getAttribute('data-f'); [].forEach.call(this.children, function (x) { x.classList.toggle('on', x === b); }); };
+      q('[data-a=no]').onclick = close;
+      q('[data-a=go]').onclick = function () {
+        var t = q('#kz-title').value.trim() || 'Actions'; close(); GC.busy('Making the Google Earth file…');
+        kmz(list, { title: t, kml: f === 'kml' }).then(function (r) {
+          GC.busy(null); GC.lastKmz = r; // for tests
+          GC.saveBlob(r.blob, r.name);
+          GC.toast(r.name + ': ' + list.length + ' action' + (list.length === 1 ? '' : 's') + (r.photos ? ', ' + r.photos + ' photo' + (r.photos === 1 ? '' : 's') : '') + '.' + (r.missing ? ' ' + r.missing + ' photo' + (r.missing === 1 ? ' is' : 's are') + ' not on this device yet.' : ''), r.missing ? 'warn' : null, 7000);
+        }, function (er) { GC.busy(null); GC.toast('Could not make the file: ' + er.message, 'err'); });
+      };
+    }, function () { setTimeout(function () { if (GC.register && !document.querySelector('#modal .rg')) GC.register.open(); }, 0); });
+  }
+
+  /** A PDF and its KMZ are ready: save or share them (each needs its own tap on an iPad or iPhone). */
+  function ready(r, pdfName, k) {
+    var pf = null, kf = null; try { pf = new File([r.blob], pdfName, { type: 'application/pdf' }); kf = new File([k.blob], k.name, { type: 'application/vnd.google-earth.kmz' }); } catch (e) { /* old browser */ }
+    var both = pf && kf && navigator.canShare && navigator.canShare({ files: [pf, kf] });
+    GC.modal('<h2>Work pack ready</h2><p class="sub">' + r.items + ' action' + (r.items === 1 ? '' : 's') + ': the PDF (' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + ') and the Google Earth file' + (k.photos ? ' (' + k.photos + ' photo' + (k.photos === 1 ? '' : 's') + ')' : '') + ', with the same numbers.</p>' +
+      '<div class="list"><div class="item"><div class="grow"><b>' + esc(pdfName) + '</b><small>PDF · ' + Math.ceil(r.blob.size / 1024) + ' KB</small></div><button class="btn" data-a="pdf">Save PDF</button></div>' +
+      '<div class="item"><div class="grow"><b>' + esc(k.name) + '</b><small>KMZ for Google Earth · ' + Math.ceil(k.blob.size / 1024) + ' KB</small></div><button class="btn" data-a="kmz">Save KMZ</button></div></div>' +
+      '<div class="actions"><button class="btn" data-a="ok">Close</button>' + (both ? '<button class="btn primary" data-a="both">Share both</button>' : '') + '</div>',
+    function (el, close) {
+      el.querySelector('[data-a=ok]').onclick = close;
+      el.querySelector('[data-a=pdf]').onclick = function () { GC.saveBlob(r.blob, pdfName); };
+      el.querySelector('[data-a=kmz]').onclick = function () { GC.saveBlob(k.blob, k.name); };
+      if (both) el.querySelector('[data-a=both]').onclick = function () { navigator.share({ files: [pf, kf], title: pdfName.replace(/\.pdf$/, '') }).catch(function () {}); };
     });
   }
 
@@ -401,6 +498,8 @@
       '<label class="opt"><input type="checkbox" id="pr-loc"' + on('locMaps', true) + '> Location map beside the photo (with the map’s layers)</label>' +
       '<label class="opt"><input type="checkbox" id="pr-look"' + on('lookup', true) + '> Nearest street address and lot/plan (looked up online)</label>' +
       '<label class="opt"><input type="checkbox" id="pr-links"' + on('links', true) + '> Clickable Google Maps and directions links</label>' +
+      '<div class="cam-lbl">With it</div>' +
+      '<label class="opt"><input type="checkbox" id="pr-kmz"' + (preset.pack || last.kmz ? ' checked' : '') + '> Also a Google Earth file (KMZ) of the same actions: numbered pins, photos and comments</label>' +
       '<label class="opt"><input type="checkbox" id="pr-layers" checked> Show the map’s visible layers on the maps (drawings, CAD, GIS, plans, online maps)</label>' +
       '<label class="opt"><input type="checkbox" id="pr-nophoto" checked> Include actions without a photo or drawing</label>' +
       '<div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Create PDF</button></div>',
@@ -411,14 +510,20 @@
       q('[data-a=no]').onclick = close;
       q('[data-a=go]').onclick = function () {
         var opt = { title: q('#pr-title').value.trim() || 'Photo report', by: q('#pr-by').value.trim(), forWho: q('#pr-for').value.trim(), perPage: per, map: q('#pr-map').checked, noPhoto: q('#pr-nophoto').checked, layers: q('#pr-layers').checked, scope: scope,
-          logo: q('#pr-logo').checked, register: q('#pr-reg').checked, locMaps: q('#pr-loc').checked, lookup: q('#pr-look').checked, links: q('#pr-links').checked };
-        try { localStorage.setItem(OPTS, JSON.stringify(preset.pack ? Object.assign(last, { forWho: opt.forWho }) : { title: opt.title, forWho: opt.forWho, logo: opt.logo, register: opt.register, locMaps: opt.locMaps, lookup: opt.lookup, links: opt.links })); } catch (e) { /* private mode */ } // a work pack keeps the PDF report's own choices
+          logo: q('#pr-logo').checked, register: q('#pr-reg').checked, locMaps: q('#pr-loc').checked, lookup: q('#pr-look').checked, links: q('#pr-links').checked, kmz: q('#pr-kmz').checked };
+        try { localStorage.setItem(OPTS, JSON.stringify(preset.pack ? Object.assign(last, { forWho: opt.forWho }) : { title: opt.title, forWho: opt.forWho, logo: opt.logo, register: opt.register, locMaps: opt.locMaps, lookup: opt.lookup, links: opt.links, kmz: opt.kmz })); } catch (e) { /* private mode */ } // a work pack keeps the PDF report's own choices
         close(); GC.busy('Creating the report…');
         build(list, opt, function (t) { GC.busy(t); }).then(function (r) {
           GC.busy(null);
           if (!r.items) { GC.toast('Nothing to report: none of these actions has a photo (tick “Include actions without a photo”).', 'warn', 7000); return; }
           GC.lastReport = r; // for tests
-          GC.saveBlob(r.blob, (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' ' + opt.title.replace(/[^\w\- ]+/g, '').trim() + ' ' + new Date().toISOString().slice(0, 10) + '.pdf');
+          var pdfName = (GC.project.name || 'GeoCanvas').replace(/[^\w\- ]+/g, '').trim() + ' ' + opt.title.replace(/[^\w\- ]+/g, '').trim() + ' ' + new Date().toISOString().slice(0, 10) + '.pdf';
+          if (opt.kmz) { // the KMZ of the same actions (same numbers, addresses and lots), then both to save or share
+            GC.busy('Making the Google Earth file…');
+            kmz(r.rows, { title: opt.title, numbers: r.numbers, where: r.where }).then(function (k) { GC.busy(null); GC.lastKmz = k; ready(r, pdfName, k); }, function (er) { GC.busy(null); GC.toast('The KMZ could not be made (' + er.message + '); saving the PDF.', 'warn'); GC.saveBlob(r.blob, pdfName); });
+            return;
+          }
+          GC.saveBlob(r.blob, pdfName);
           var noAddr = opt.lookup && Object.keys(r.where).some(function (k) { return !r.where[k].addr; });
           GC.toast('Report ready: ' + r.items + ' action' + (r.items === 1 ? '' : 's') + ', ' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + '.' + (r.missing ? ' ' + r.missing + ' photo' + (r.missing === 1 ? ' is' : 's are') + ' not on this device yet.' : '') + (opt.map && !r.mapBg ? ' (The map has no background imagery: it could not be fetched.)' : '') + (noAddr ? ' Some addresses could not be looked up (they need internet).' : ''), r.missing || noAddr ? 'warn' : null, 8000);
         }, function (e) { GC.busy(null); GC.toast('Could not create the report: ' + e.message, 'err'); });
@@ -426,5 +531,5 @@
     }, function () { setTimeout(function () { if (GC.register && !document.querySelector('#modal .rg')) GC.register.open(); }, 0); });
   }
 
-  GC.report = { open: open, build: build, _pdf: { Doc: Doc, wrap: wrap, textWidth: textWidth } };
+  GC.report = { open: open, build: build, kmz: kmz, openKmz: openKmz, _pdf: { Doc: Doc, wrap: wrap, textWidth: textWidth } };
 })(window);

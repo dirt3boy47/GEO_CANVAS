@@ -230,5 +230,5 @@
     return [ps, 0, 0, -ps, ulx + ps / 2, uly - ps / 2].map(function (v) { return v.toFixed(10); }).join('\n') + '\n';
   }
 
-  global.Exporters = { geojson: geojson, kml: kml, overlayFile: overlayFile, gpx: gpx, rasterExtent: rasterExtent, renderCanvas: renderCanvas, geotiff: geotiff, worldFile: worldFile, WKT3857: WKT3857, collect: collect };
+  global.Exporters = { kmlGeom: kmlGeom, kmlColor: kmlColor, cdata: cdata, kmlEsc: esc, geojson: geojson, kml: kml, overlayFile: overlayFile, gpx: gpx, rasterExtent: rasterExtent, renderCanvas: renderCanvas, geotiff: geotiff, worldFile: worldFile, WKT3857: WKT3857, collect: collect };
 })(typeof window !== 'undefined' ? window : global);
