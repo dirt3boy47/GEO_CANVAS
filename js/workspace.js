@@ -212,6 +212,127 @@
     }).then(function () { GC.busy(null); GC.toast('“' + src.name + '” copied into the team workspace.'); }, function (e) { GC.busy(null); GC.toast(e.message, 'err'); });
   }
 
+  // ---------- copying the team workspace's layers to another team (e.g. a sub-contractor's) ----------
+  function canCopyOut() { var t = GC.cloud.team(); return !!(GC.cloud.signedIn() && t && (t.role === 'owner' || t.role === 'admin')); }
+  function teamWsId(t) { return 'ws' + String(t.id).toLowerCase().replace(/[^0-9a-z]/g, ''); }
+  function libOf(t) { return 'mylib' + String(t.id).replace(/[^0-9a-z]/gi, ''); }
+  function setTeam(t) { GC.settings.cloud.team = t; GC.saveSettings(); GC.cloud.refresh(); }
+  /** Asks the server to copy stored data (layer data, photos, map pieces) from one project into another, in batches. */
+  function copyBlobs(from, to, hashes, space) {
+    var list = (hashes || []).filter(Boolean), at = 0;
+    var next = function () {
+      if (at >= list.length) return Promise.resolve();
+      var part = list.slice(at, at + 400); at += 400;
+      return GC.cloud.api('POST', 'projects/' + to + '/copyfrom', { from: from, hashes: part }, { space: space, timeout: 120000 }).then(next);
+    };
+    return next();
+  }
+  /**
+   * Copies layers of the open team workspace into another team's workspace (made when it has none). Layers from My maps
+   * come along: CAD drawings and online maps go into the workspace itself; plans and GeoPDFs into that team's My maps.
+   * Stored data is copied on the server, so nothing big is uploaded again. A layer copied before is replaced (send again
+   * to update), other layers there are kept. Back in this team afterwards. → { layers, maps, skipped: [names] }
+   */
+  function copyToTeam(tgt, lids) {
+    var me = GC.cloud.team(), src = GC.project, skipped = [], toLib = [];
+    if (!isWs(src)) return Promise.reject(new Error('Open the team workspace first.'));
+    var layers = clean(src.layers.filter(function (l) { return lids.indexOf(l.id) >= 0; })).map(function (l) {
+      if (l.kind !== 'libmap') return l;
+      var m = GC.mymaps && GC.mymaps.get(l.ref); if (!m) { skipped.push(l.name); return null; }
+      if (m.kind === 'cad' || m.kind === 'service') { // small enough to live in the workspace itself
+        var c = clean(m); c.id = l.id; c.name = l.name; c.visible = l.visible; c.opacity = l.opacity; ['folder', 'cadOff', 'hideFills', 'mono', 'showText', 'blend'].forEach(function (k) { if (l[k] != null) c[k] = l[k]; }); delete c.libRef;
+        return c;
+      }
+      toLib.push(m); return l; // a plan or GeoPDF: into the other team's My maps, the reference stays
+    }).filter(Boolean);
+    var srcMan = null, libMan = null, ws = null, tws = teamWsId(tgt);
+    GC.busy('Copying to “' + tgt.name + '”…');
+    return GC.saveNow().then(function () { return GC.cloud.run(true); }).then(function () {
+      return Promise.all([GC.cloud.api('GET', 'projects/' + src.id), toLib.length ? GC.cloud.api('GET', 'projects/' + libOf(me)).catch(function () { return null; }) : null]);
+    }).then(function (r) {
+      srcMan = r[0] && r[0].manifest; libMan = r[1] && r[1].manifest;
+      if (!srcMan) throw new Error('This workspace is not in the cloud yet: wait for it to sync, then copy again.');
+      setTeam(tgt); // from here on, everything goes into the other team
+      return copyBlobs(src.id, tws, srcMan.blobs, tgt.id);
+    }).then(function () { return ensureWs(); }).then(function (p) {
+      ws = p; return copyFiles(src.id, ws.id, layers);
+    }).then(function () {
+      return GC.cloud.edit(ws.id, function (w) {
+        var ids = {}; layers.forEach(function (l) { ids[l.id] = 1; });
+        var fresh = w.layers.every(function (l) { return ids[l.id] || (l.kind === 'drawing' && !(l.items || []).length); }); // a new, empty workspace: drop its empty starter layer
+        w.layers = w.layers.filter(function (l) { return !ids[l.id] && !(fresh && l.kind === 'drawing' && !(l.items || []).length); }).concat(layers);
+        if (!w.layers.some(function (l) { return l.id === w.activeLayer; })) w.activeLayer = (w.layers.filter(function (l) { return l.kind === 'drawing'; }).pop() || {}).id || null;
+        if (!w.view || !w.layers.some(function (l) { return !ids[l.id] && l.kind !== 'drawing'; })) { w.view = src.view; w.basemap = src.basemap; }
+        return null; // everything changed
+      });
+    }).then(function (w) {
+      // it must now be in the other team's cloud; if not, don't leave a copy that could later sync into this team
+      if (!w || !w.cloud || w.cloud.team !== tgt.id) return Store.deleteProject(ws.id).then(function () { throw new Error('the copy could not be uploaded to “' + tgt.name + '” (check the internet connection and try again).'); });
+      if (!toLib.length) return null;
+      var tl = libOf(tgt);
+      return copyBlobs(libOf(me), tl, libMan ? libMan.blobs : [], tgt.id).then(function () {
+        return Store.loadProject(tl).catch(function () { return GC.cloud.download(tl).catch(function () { return null; }); });
+      }).then(function (lp) {
+        var add = function (L0) { var ids = {}; toLib.forEach(function (m) { ids[m.id] = 1; }); return L0.filter(function (m) { return !ids[m.id]; }).concat(clean(toLib)); };
+        var save = lp ? Promise.resolve() : Store.saveProject({ id: tl, name: 'My maps', library: true, created: Date.now(), modified: Date.now(), notes: JSON.stringify({ folders: [] }), view: src.view, basemap: 'qld', activeLayer: null, layers: [] }, null);
+        return save.then(function () { return GC.cloud.edit(tl, function (x) { x.layers = add(x.layers); return null; }); }).then(function (x) {
+          if (!x || !x.cloud || x.cloud.team !== tgt.id) return Store.deleteProject(tl).then(function () { skipped = skipped.concat(toLib.map(function (m) { return m.name + ' (My maps upload failed)'; })); toLib = []; });
+        });
+      });
+    }).then(function () {
+      setTeam(me); if (GC.mymaps) GC.mymaps.load(true);
+      GC.busy(null);
+      return { layers: layers.length, maps: toLib.length, skipped: skipped };
+    }, function (e) {
+      if (GC.cloud.team() && GC.cloud.team().id !== me.id) { setTeam(me); if (GC.mymaps) GC.mymaps.load(true); }
+      GC.busy(null); throw e;
+    });
+  }
+  /** Choose the team (or make one) and the layers. */
+  function copyOutDialog() {
+    var me = GC.cloud.team(), others = ((GC.settings.cloud || {}).teams || []).filter(function (t) { return t.id !== me.id; });
+    var ls = GC.project.layers.slice().reverse();
+    var kindOf = function (l) { return GC.kindLabel(l) || l.kind; };
+    GC.modal('<h2>Copy to another team</h2><p class="sub">Copies layers of “' + esc(me.name) + '” into another team’s workspace, e.g. a sub-contractor’s: with their photos, files and map sheets. That team works on its own copy; copy again later to update the layers you sent (they are replaced, the rest of their workspace is kept).</p>' +
+      '<label class="field">To the team<select id="co-team">' + others.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>'; }).join('') + '<option value="__new">+ Create a new team…</option></select></label>' +
+      '<div class="cam-lbl">Layers <small id="co-n"></small> <button class="link" id="co-all">All</button> <button class="link" id="co-none">None</button></div>' +
+      '<div class="list co-list">' + ls.map(function (l) { return '<label class="item"><input type="checkbox" data-id="' + esc(l.id) + '" checked><div class="grow"><b>' + esc(l.name) + '</b><small>' + esc(kindOf(l)) + (l.folder ? ' · ' + esc(l.folder) : '') + '</small></div></label>'; }).join('') + '</div>' +
+      '<p class="fail" hidden></p><div class="actions"><button class="btn" data-a="no">Cancel</button><button class="btn primary" data-a="go">Copy</button></div>',
+    function (el, close) {
+      var q = function (x) { return el.querySelector(x); }, boxes = el.querySelectorAll('.co-list input');
+      var count = function () { var n = [].filter.call(boxes, function (b) { return b.checked; }).length; q('#co-n').textContent = n + ' of ' + boxes.length; return n; };
+      count(); el.querySelector('.co-list').onchange = count;
+      q('#co-all').onclick = function () { [].forEach.call(boxes, function (b) { b.checked = true; }); count(); };
+      q('#co-none').onclick = function () { [].forEach.call(boxes, function (b) { b.checked = false; }); count(); };
+      if (!others.length) q('#co-team').value = '__new';
+      q('[data-a=no]').onclick = close;
+      q('[data-a=go]').onclick = function () {
+        var msg = q('.fail'), lids = [].filter.call(boxes, function (b) { return b.checked; }).map(function (b) { return b.getAttribute('data-id'); });
+        if (!lids.length) { msg.hidden = false; msg.textContent = 'Tick at least one layer.'; return; }
+        var pickTeam = q('#co-team').value === '__new'
+          ? GC.prompt('New team', '', 'e.g. Green Arbor (arborist)', 'Create').then(function (n) { if (!n) return null; return GC.cloud.api('POST', 'teams', { name: n }).then(function (r) { var t = r.team; GC.settings.cloud.teams = (GC.settings.cloud.teams || []).concat([t]); GC.saveSettings(); return t; }); })
+          : Promise.resolve(others.filter(function (t) { return t.id === q('#co-team').value; })[0]);
+        close();
+        pickTeam.then(function (t) {
+          if (!t) { copyOutDialog(); return; }
+          return copyToTeam(t, lids).then(function (r) { done(t, r); });
+        }).catch(function (e) { GC.toast('Could not copy: ' + e.message, 'err', 9000); });
+      };
+    });
+  }
+  function done(t, r) {
+    var boss = t.role === 'owner' || t.role === 'admin';
+    GC.modal('<h2>Copied to “' + esc(t.name) + '”</h2><p class="sub">' + r.layers + ' layer' + (r.layers === 1 ? '' : 's') + ' are in its team workspace' + (r.maps ? ', and ' + r.maps + ' map' + (r.maps === 1 ? '' : 's') + ' in its My maps' : '') + '. You are still working in your own team.' +
+      (r.skipped.length ? ' Not copied (not in My maps on this device): ' + esc(r.skipped.join(', ')) + '.' : '') + '</p>' +
+      (boss ? '<p class="hint">Invite the sub-contractor with a link: they sign in (or create an account) and land in that team, with only what you copied.</p>' : '') +
+      '<div class="actions"><button class="btn" data-a="ok">Done</button><button class="btn" data-a="open">Open “' + esc(t.name) + '”</button>' + (boss ? '<button class="btn primary" data-a="inv">Share invite link</button>' : '') + '</div>',
+    function (el, close) {
+      el.querySelector('[data-a=ok]').onclick = close;
+      el.querySelector('[data-a=open]').onclick = function () { close(); setTeam(GC.settings.cloud.teams.filter(function (x) { return x.id === t.id; })[0] || t); GC.toast('Working in “' + t.name + '”.'); openTeam(); };
+      if (boss) el.querySelector('[data-a=inv]').onclick = function () { close(); if (GC.account && GC.account.invite) GC.account.invite(t); };
+    });
+  }
+
   // ---------- the Workspaces screen (Projects, when in a team) ----------
   function openList() {
     GC.busy('Checking the team cloud…');
@@ -240,7 +361,8 @@
       var t = GC.cloud.team(), wsName = (wsLocal && wsLocal.name) || (wsRemote && wsRemote.name) || (t.name + ' workspace');
       var wsT = Math.max(wsLocal ? wsLocal.modified || 0 : 0, wsRemote ? wsRemote.modified || 0 : 0);
       var html = '<h2>Workspaces</h2><p class="sub"><b>' + esc(t.name) + '</b>: one shared team workspace, plus your private jobs on this device.</p>' +
-        '<div class="ws-card' + (cur === ws ? ' current' : '') + '" data-ws><div class="ws-ic">☁</div><div class="grow"><b>' + esc(wsName) + '</b><small>Team workspace · live: everyone’s changes appear as they happen' + (wsT ? ' · edited ' + GC.fmtTime(wsT) + (wsRemote && wsRemote.device ? ' by ' + esc(wsRemote.device) : '') : '') + '</small></div><button class="btn primary" data-a="ws">' + (cur === ws ? 'Open' : 'Open') + '</button></div>' +
+        '<div class="ws-card' + (cur === ws ? ' current' : '') + '" data-ws><div class="ws-ic">☁</div><div class="grow"><b>' + esc(wsName) + '</b><small>Team workspace · live: everyone’s changes appear as they happen' + (wsT ? ' · edited ' + GC.fmtTime(wsT) + (wsRemote && wsRemote.device ? ' by ' + esc(wsRemote.device) : '') : '') + '</small></div>' +
+          (canCopyOut() ? '<button class="btn" data-a="copyout" title="Copy its layers into another team’s workspace, e.g. a sub-contractor’s">Copy to another team…</button>' : '') + '<button class="btn primary" data-a="ws">' + (cur === ws ? 'Open' : 'Open') + '</button></div>' +
         '<div class="ws-head">My jobs <small>private · ' + (GC.cloud.signedIn() ? 'on all your devices, no one else’s' : 'on this device only') + ' · the team’s changes don’t come in</small></div><div class="list">' +
         (jobs.length ? jobs.map(function (m) {
           return '<div class="item' + (m.id === cur ? ' current' : '') + '" data-id="' + esc(m.id) + '"><div class="grow" data-a="open"><b>' + esc(m.name) + '</b><small>' + (m.job.from ? 'from the team workspace · ' : '') + 'edited ' + GC.fmtTime(m.modified || m.created) + ' · ' + (m.job.sent ? 'sent to team ' + GC.fmtTime(m.job.sent) : 'not sent yet') + (goneHere(m) ? ' · <b class="ws-gone">deleted on your other device; this copy has changes</b>' : '') + '</small></div>' +
@@ -254,6 +376,7 @@
         el.querySelector('[data-a=close]').onclick = close;
         el.querySelector('[data-a=ws]').onclick = function () { close(); openTeam(); };
         el.querySelector('[data-a=newjob]').onclick = function () { close(); askNewJob(); };
+        if (el.querySelector('[data-a=copyout]')) el.querySelector('[data-a=copyout]').onclick = function () { close(); copyOutDialog(); };
         el.addEventListener('click', function (e) {
           var it = e.target.closest('[data-id]'), a = e.target.closest('[data-a]'); if (!it || !a) return;
           var id = it.getAttribute('data-id'), act = a.getAttribute('data-a');
@@ -319,6 +442,6 @@
   GC.openProject = function (p) { var r = origOpen.apply(this, arguments); paintTag(); return r; };
   if ($('ws-tag')) $('ws-tag').onclick = function () { if (cloudOn()) openList(); };
 
-  GC.workspace = { fingerprint: fingerprint, active: cloudOn, id: wsId, isWs: isWs, isJob: isJob, openTeam: openTeam, onJoin: onJoin, newJob: newJob, sendToTeam: sendToTeam, copyIntoTeam: copyIntoTeam, openList: openList, _apply: apply };
+  GC.workspace = { copyToTeam: copyToTeam, copyOutDialog: copyOutDialog, fingerprint: fingerprint, active: cloudOn, id: wsId, isWs: isWs, isJob: isJob, openTeam: openTeam, onJoin: onJoin, newJob: newJob, sendToTeam: sendToTeam, copyIntoTeam: copyIntoTeam, openList: openList, _apply: apply };
   paintTag();
 })(window);

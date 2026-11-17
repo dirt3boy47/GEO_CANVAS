@@ -871,3 +871,4 @@ body.phone #sk-bar .sk-txt { flex: 1; }
 #safe-bar { position: fixed; z-index: 1200; left: 50%; top: calc(64px + var(--safe-t)); -webkit-transform: translateX(-50%); transform: translateX(-50%); width: min(560px, calc(100% - 16px)); display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-left: 4px solid #f9ab00; }
 #safe-bar > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 #safe-bar small { color: var(--muted); line-height: 1.3; }
+.co-list { max-height: 44vh; overflow: auto; } .co-list .item { display: flex; align-items: center; gap: 10px; cursor: pointer; } .co-list input { width: 20px; height: 20px; flex: none; } .co-list small { display: block; color: var(--muted); }

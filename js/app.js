@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-11-11.1' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-17.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -166,7 +166,10 @@
     var v = GC.views[l.id]; if (v) return v;
     var pn = 'gc' + l.id.replace(/[^a-z0-9]/gi, '');
     var pane = map.getPane(pn) || map.createPane(pn);
-    v = GC.views[l.id] = { pn: pn, pane: pane, group: L.layerGroup().addTo(map), paths: {}, objs: {}, markers: {}, trackLines: {}, renderer: L.canvas({ pane: pn, padding: 0.4, tolerance: 6 }) };
+    // the layer's labels get a pane of their own (above the map layers, like Leaflet's tooltipPane), so hiding the layer hides them too
+    var lpn = pn + 'lbl', lpane = map.getPane(lpn) || map.createPane(lpn);
+    lpane.style.zIndex = 650; lpane.style.pointerEvents = 'none';
+    v = GC.views[l.id] = { pn: pn, pane: pane, lpn: lpn, lpane: lpane, group: L.layerGroup().addTo(map), paths: {}, objs: {}, markers: {}, trackLines: {}, renderer: L.canvas({ pane: pn, padding: 0.4, tolerance: 6 }) };
     return v;
   }
   function destroyView(id) {
@@ -174,6 +177,7 @@
     v.group.clearLayers(); map.removeLayer(v.group);
     if (map.hasLayer(v.renderer)) map.removeLayer(v.renderer);
     L.DomUtil.remove(v.pane); delete map._panes[v.pn]; if (map._paneRenderers) delete map._paneRenderers[v.pn];
+    if (v.lpane) { L.DomUtil.remove(v.lpane); delete map._panes[v.lpn]; }
     delete GC.views[id];
   }
   GC.destroyView = destroyView;
@@ -183,7 +187,7 @@
     GC.project.layers.forEach(function (l, i) {
       var v = ensureView(l);
       v.pane.style.zIndex = String(210 + Math.min(i, 380));
-      v.pane.style.display = l.visible ? '' : 'none';
+      v.pane.style.display = v.lpane.style.display = l.visible ? '' : 'none'; // the layer and its labels
       v.pane.style.opacity = String(l.opacity == null ? 1 : l.opacity);
       // Over the imagery: "Hide white paper" multiplies (paper disappears, lines print on the photo); "High contrast" shows the
       // map light-for-dark (hue kept) and screens it on, so the paper vanishes and the lines glow over dark bush.
@@ -482,9 +486,9 @@
             if (pt && icons && t != null && t !== '' && ls > 0 && lay.options.icon) {
               var sz = lay.options.icon.options.iconSize || [0, 0], an = lay.options.icon.options.iconAnchor || [0, 0];
               lay.bindTooltip('<span style="' + (p['label-color'] ? 'color:' + p['label-color'] + ';' : '') + 'font-size:' + Math.round(12.5 * Math.min(2, ls)) + 'px">' + GC.esc(t) + '</span>',
-                { permanent: true, direction: 'right', offset: [sz[0] - an[0] - 4, sz[1] / 2 - an[1]], className: 'gc-plabel', pane: 'tooltipPane' });
+                { permanent: true, direction: 'right', offset: [sz[0] - an[0] - 4, sz[1] / 2 - an[1]], className: 'gc-plabel', pane: v.lpn });
             }
-          } else if (labels && p[l.labelField] != null && p[l.labelField] !== '') lay.bindTooltip(GC.esc(p[l.labelField]), { permanent: true, direction: 'center', className: 'gc-label', pane: 'tooltipPane' });
+          } else if (labels && p[l.labelField] != null && p[l.labelField] !== '') lay.bindTooltip(GC.esc(p[l.labelField]), { permanent: true, direction: 'center', className: 'gc-label', pane: v.lpn });
         }
       });
       v.group.addLayer(gj);
@@ -530,7 +534,7 @@
         var m = pin ? L.marker([w.lat, w.lon], { pane: v.pn, icon: cam.icon(l, w), interactive: false, keyboard: false })
           : L.circleMarker([w.lat, w.lon], { pane: v.pn, renderer: v.renderer, radius: 7, color: '#fff', weight: 2, fillColor: l.color || '#e8590c', fillOpacity: 1, interactive: false });
         m._gcWp = w;
-        if (w.name) m.bindTooltip(GC.esc(w.name) + (!pin && w.photos && w.photos.length ? ' 📷' : ''), { permanent: (l.waypoints.length < 150), direction: 'right', offset: pin ? [12, -20] : [8, 0], className: 'gc-label' });
+        if (w.name) m.bindTooltip(GC.esc(w.name) + (!pin && w.photos && w.photos.length ? ' 📷' : ''), { permanent: (l.waypoints.length < 150), direction: 'right', offset: pin ? [12, -20] : [8, 0], className: 'gc-label', pane: v.lpn });
         v.group.addLayer(m);
       });
     }

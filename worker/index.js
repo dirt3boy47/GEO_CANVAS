@@ -34,6 +34,7 @@
    POST   /api/projects/:id/missing         {hashes} → the ones the server does not have
    PUT    /api/projects/:id/blobs/:hash     store a blob (text: JSON, or base64 for binary files)
    GET    /api/projects/:id/blobs/:hash     fetch a blob
+   POST   /api/projects/:id/copyfrom        {from, hashes} → copy blobs from another of your projects (accounts only)
    Blobs of 32 KB or more live in R2 (binding FILES) when it is bound; D1 keeps a marker row for each. */
 
 const CHUNK = 600000; // characters; ≤ 1.8 MB of UTF-8, under D1's 2 MB row limit
@@ -485,5 +486,32 @@ async function sessionApi(request, env, url, ctx, parts, m) {
     if (!ok) return json({ error: 'This project belongs to another team.' }, 403);
     space = { id: r.team_id };
   }
+  if (parts[3] === 'copyfrom' && parts.length === 4 && m === 'POST') return copyBlobs(request, env, me, id);
   return projectApi(request, env, ctx, parts, m, space, r ? 'mine' : 'none');
+}
+
+/** Copies stored data (layer data, photos, map pieces) from one of your projects into another, server side: copying
+    layers to another team then needs no upload from the device. Both projects must be in your spaces. */
+async function copyBlobs(request, env, me, to) {
+  const body = await request.json().catch(() => ({}));
+  const from = String(body.from || ''), hashes = (Array.isArray(body.hashes) ? body.hashes : []).filter((h) => HASH.test(h)).slice(0, 500);
+  if (!ID.test(from) || from === to) return json({ error: 'Bad source project.' }, 400);
+  const mayUse = async (id) => { const r = await env.DB.prepare('SELECT team_id FROM projects WHERE id = ?').bind(id).first(); return !r ? null : r.team_id === 'u' + me.user.id || (r.team_id.charAt(0) !== 'u' && !!(await roleIn(env, me.user.id, r.team_id))); };
+  if (!(await mayUse(from))) return json({ error: 'You cannot copy from that project.' }, 403);
+  if ((await mayUse(to)) === false) return json({ error: 'This project belongs to another team.' }, 403);
+  if (!hashes.length) return json({ copied: 0 });
+  const have = new Set((await env.DB.prepare('SELECT hash FROM blobs WHERE pid = ?1 AND idx = 0 AND hash IN (SELECT value FROM json_each(?2))').bind(to, JSON.stringify(hashes)).all()).results.map((x) => x.hash));
+  let copied = 0;
+  for (const h of hashes) {
+    if (have.has(h)) continue;
+    const rows = (await env.DB.prepare('SELECT idx, data FROM blobs WHERE pid = ? AND hash = ? ORDER BY idx').bind(from, h).all()).results;
+    if (!rows.length) continue;
+    if (typeof rows[0].data === 'string' && rows[0].data.indexOf(R2_MARK) === 0) {
+      const obj = env.FILES ? await env.FILES.get(r2key(from, h)) : null; if (!obj) continue;
+      await env.FILES.put(r2key(to, h), await obj.text(), { httpMetadata: { contentType: 'text/plain; charset=utf-8' } });
+    }
+    await env.DB.batch(rows.map((x) => env.DB.prepare('INSERT OR REPLACE INTO blobs (pid, hash, idx, data) VALUES (?, ?, ?, ?)').bind(to, h, x.idx, x.data)));
+    copied++;
+  }
+  return json({ copied: copied });
 }

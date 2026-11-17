@@ -35,6 +35,12 @@ To update later: upload a new ZIP to the same Cloudflare project ("Create new de
 - **Teams belong to people.** ☁ › **Create a team** (you are its owner; the join code is shown to share) or **Join a
   team** with its code (capitals, spaces and dashes don't matter). You can be in several teams: ☁ › **Switch to**.
   Never put a join code in this public repository.
+- **Copy to another team (sub-contractors).** Owners and admins: Projects › the team workspace › **Copy to another team…**
+  › pick a team (or **+ Create a new team…**) and tick the layers (all by default). They go into that team's workspace
+  with their photos, files and map sheets — stored data is copied on the server, so nothing big uploads again. From My
+  maps, CAD drawings and online maps go into the workspace itself; plans and GeoPDFs into that team's My maps. You stay
+  in your own team; then **Share invite link** so the sub-contractor joins only their team. Copy again later to update
+  what you sent (those layers are replaced; the team's own layers stay). Server: `POST /api/projects/:id/copyfrom`.
 - **Invite links.** Owners and admins: ☁ › the team › Manage › **Share invite link**. Whoever opens the link sees
   “Join <team>”, signs in or creates an account, and is in the team straight away (no code to type); someone already
   signed in just confirms. Links work for 14 days; **Stop invite links** cancels every link sent so far. Only a hash of
