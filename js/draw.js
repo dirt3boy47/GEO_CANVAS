@@ -499,6 +499,7 @@
     if (GC.placeOnce) { var put = GC.placeOnce; GC.placeOnce = null; put(e.latlng); return; } // Move pin: the next tap
     if (GC.georef && GC.georef.click(e)) return; // placing a plan: taps are control points
     if (GC.measure && GC.measure.click(e)) return; // measuring: taps add points
+    if (GC.shapeEdit && GC.shapeEdit.click(e)) return; // editing a layer's lines and areas: taps pick the shape
     GC.pickAt(e);
   });
 

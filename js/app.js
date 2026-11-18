@@ -5,7 +5,7 @@
   'use strict';
   var Geo = global.Geo, Ink = global.Ink, Store = global.Store;
   var $ = function (id) { return document.getElementById(id); };
-  var GC = global.GC = { $: $, VERSION: '2026-11-17.1' };
+  var GC = global.GC = { $: $, VERSION: '2026-11-18.1' };
   var TOOWOOMBA = [-27.5598, 151.9507];
   GC.TOOWOOMBA = TOOWOOMBA;
 
@@ -770,7 +770,7 @@
       };
     });
   }
-  function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : '') + (GC.paused && GC.paused[l.id] ? ' · paused (safe start)' : ''); }
+  function layerSub(l) { return GC.kindLabel(l) + ' · ' + GC.layerCount(l) + (l.opacity < 1 ? ' · ' + Math.round(l.opacity * 100) + '%' : '') + (GC.paused && GC.paused[l.id] ? ' · paused (safe start)' : '') + (GC.shapeEdit && GC.shapeEdit.isOn(l.id) ? ' · editing shapes' : ''); }
   var shownLimit = {}; // "layer:folder" → rows shown in very large folders
   var GEOM_ICON = { Point: 'gpt', MultiPoint: 'gpt', LineString: 'gline', MultiLineString: 'gline', Polygon: 'gpoly', MultiPolygon: 'gpoly' };
   function treeRows(l, nodes, depth, off, out, key) {
@@ -971,7 +971,8 @@
     var html = '<h2>Layer options</h2><p class="sub">' + GC.esc(info.join(' · ')) + '</p>' +
       '<label class="field">Name<input type="text" id="lo-name" value="' + GC.esc(l.name) + '"></label>' +
       '<label class="field">Folder<select id="lo-folder"><option value="">No folder</option>' + GC.layerFolders().map(function (f) { return '<option' + (f === l.folder ? ' selected' : '') + '>' + GC.esc(f) + '</option>'; }).join('') + '<option value="__new">+ New folder…</option></select></label>' +
-      '<label class="slider" style="margin:8px 6px">Opacity <output id="lo-opv">' + Math.round(l.opacity * 100) + '%</output><input type="range" id="lo-op" min="5" max="100" value="' + Math.round(l.opacity * 100) + '"></label>';
+      '<label class="slider" style="margin:8px 6px">Opacity <output id="lo-opv">' + Math.round(l.opacity * 100) + '%</output><input type="range" id="lo-op" min="5" max="100" value="' + Math.round(l.opacity * 100) + '"></label>' +
+      (GC.shapeEdit && GC.shapeEdit.editable(l) ? '<label class="opt lo-edit"><input type="checkbox" id="lo-edit"' + (GC.shapeEdit.isOn(l.id) ? ' checked' : '') + '> <span><b>Edit lines and areas</b> on the map: drag their points, add or delete points</span></label>' : '');
     if (isVec) {
       var st = l.style || {};
       html += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 6px;align-items:center">' +
@@ -1031,6 +1032,9 @@
         if (v) GC.setOpen('fold:' + v, true);
         GC.setFolder([l], v);
         GC.toast(v ? '“' + l.name + '” is in “' + v + '”.' : '“' + l.name + '” is out of its folder.');
+      };
+      if (q('#lo-edit')) q('#lo-edit').onchange = function () {
+        if (q('#lo-edit').checked) { q('#lo-name').onchange(); close(); GC.shapeEdit.start(l); } else GC.shapeEdit.stop();
       };
       q('#lo-op').oninput = function () { l.opacity = q('#lo-op').value / 100; q('#lo-opv').textContent = q('#lo-op').value + '%'; GC.applyLayerState(); GC.markDirty(l.id); GC.refreshLayers(true); };
       if (isVec) {
