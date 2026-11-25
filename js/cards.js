@@ -120,18 +120,16 @@
     measure: '<use xlink:href="#i-ruler"/>', photo: '<use xlink:href="#i-camera"/>',
     note: '<path d="M5 4h10l4 4v12H5z M15 4v4h4 M8 12h8 M8 16h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>',
     copy: '<use xlink:href="#i-copy"/>',
-    earth: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 12h17 M12 3.5c-3 3-3 14 0 17 M12 3.5c3 3 3 14 0 17" fill="none" stroke="currentColor" stroke-width="1.5"/>',
+    maps: '<path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.4" fill="currentColor"/>',
     more: '<use xlink:href="#i-more"/>' };
-  /** Google Earth (web, or the app where installed) with a pin at the place and the view fitted to the shape. */
-  function earthUrl(geom, at) {
-    var x0 = 180, y0 = 90, x1 = -180, y1 = -90;
-    (function walk(c) { if (typeof c[0] === 'number') { x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]); } else c.forEach(walk); })(
-      geom && geom.type === 'GeometryCollection' ? geom.geometries.map(function (g) { return g.coordinates; }) : geom && geom.coordinates || at);
-    if (x0 > x1) { x0 = x1 = at[0]; y0 = y1 = at[1]; }
-    var pt = geom && geom.type === 'Point', lon = pt ? geom.coordinates[0] : (x0 + x1) / 2, lat = pt ? geom.coordinates[1] : (y0 + y1) / 2;
-    var size = Math.max((x1 - x0) * 111320 * Math.cos(lat * Math.PI / 180), (y1 - y0) * 110540);
-    var d = Math.round(Math.min(2e6, Math.max(400, size * 2.2))), ll = lat.toFixed(6) + ',' + lon.toFixed(6);
-    return 'https://earth.google.com/web/search/' + ll + '/@' + ll + ',0a,' + d + 'd,35y,0h,0t,0r';
+  /**
+   * Google Maps directions from where you are now (Maps fills in your location) to the place, turn-by-turn on phones.
+   * A point is the destination itself; a line or area its nearest edge to your GPS fix (if recent and outside it), else where you tapped.
+   */
+  function mapsUrl(geom, at) {
+    var d = geom && geom.type === 'Point' ? geom.coordinates : at, f = GC.gps && GC.gps.fix();
+    if (geom && geom.type !== 'Point' && f && Date.now() - f.t < 300000) { var n = nearest(geom, [f.lon, f.lat]); if (n && !n.inside) d = n.p; }
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + d[1].toFixed(6) + '%2C' + d[0].toFixed(6) + '&travelmode=driving&dir_action=navigate';
   }
   function btn(a, label) { return '<button class="ca-b" data-a="' + a + '"><svg viewBox="0 0 24 24">' + ICON[a] + '</svg><span>' + label + '</span></button>'; }
   /**
@@ -149,7 +147,7 @@
     var root = document.createElement('div'); root.className = 'gc-card';
     root.innerHTML = (spec.title && !spec.hideTitle ? '<div class="gb-title">' + esc(spec.title) + '</div>' : '') + (spec.sub ? '<div class="gc-sub">' + esc(spec.sub) + '</div>' : '') +
       '<div class="gc-body"></div><div class="gc-note" hidden></div><div class="gb-photos"></div>' +
-      '<div class="gc-acts">' + btn('go', 'Go') + btn('measure', 'Measure') + btn('photo', 'Photo') + btn('note', 'Note') + btn('copy', 'Copy') + btn('earth', 'Earth') + btn('more', 'More') + '</div>' +
+      '<div class="gc-acts">' + btn('go', 'Go') + btn('measure', 'Measure') + btn('photo', 'Photo') + btn('note', 'Note') + btn('copy', 'Copy') + '<a class="ca-b" data-a="maps" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24">' + ICON.maps + '</svg><span>Maps</span></a>' + btn('more', 'More') + '</div>' +
       '<div class="gc-panel" hidden></div>';
     var body = root.querySelector('.gc-body');
     if (spec.body) { if (typeof spec.body === 'string') body.innerHTML = spec.body; else body.appendChild(spec.body); }
@@ -206,9 +204,12 @@
         [].forEach.call(p.querySelectorAll('[data-c]'), function (b) { b.onclick = function () { copy(c[b.getAttribute('data-c')]); }; });
       });
     };
-    q('earth').onclick = function () {
-      if (navigator.onLine === false) { GC.toast('Google Earth needs internet: try again when you have signal.', 'warn'); return; }
-      window.open(earthUrl(target, at), '_blank', 'noopener');
+    // a real link, so iPhone and Android hand it to the Google Maps app (the href is refreshed as the finger lands, for the latest GPS fix)
+    var mb = q('maps'), setMaps = function () { mb.href = mapsUrl(target, at); };
+    setMaps(); mb.addEventListener('pointerdown', setMaps); mb.addEventListener('touchstart', setMaps, { passive: true });
+    mb.onclick = function (e) {
+      if (navigator.onLine === false) { e.preventDefault(); GC.toast('Google Maps needs internet: try again when you have signal.', 'warn'); return; }
+      setMaps();
     };
     q('more').onclick = function () {
       var acts = (spec.zoom ? [{ label: 'Zoom to', fn: function () { var b = spec.zoom; if (b.getNorthEast().equals(b.getSouthWest())) map.setView(b.getCenter(), Math.max(map.getZoom(), 18)); else map.fitBounds(b, { padding: [80, 80], maxZoom: 19 }); } }] : []).concat(spec.more || []);
@@ -335,7 +336,7 @@
     return res.slice(0, 40);
   }
 
-  GC.card = { open: open, close: close, pin: pin, current: function () { return cur; }, boundsOf: boundsOf, earthUrl: earthUrl };
+  GC.card = { open: open, close: close, pin: pin, current: function () { return cur; }, boundsOf: boundsOf, mapsUrl: mapsUrl };
   GC.nav = nav;
   GC.findInProject = find;
 })(window);
