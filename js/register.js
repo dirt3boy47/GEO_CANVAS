@@ -137,8 +137,13 @@
           '<span class="rg-chkcell"><button class="rg-tick" data-k="chk" aria-pressed="' + !!w.chk + '"' + (ro ? ' disabled' : '') + ' title="Checked" aria-label="Checked"><i></i></button>' +
           '<span class="rg-who">' + whoHtml(w) + '</span></span>' +
           '<span class="rg-note">' + esc(w.note || '') + '</span>' +
-          '<button class="btn rg-go" data-k="show">Map</button></div>';
+          '<span class="rg-gocell"><button class="btn rg-go" data-k="show">Map</button>' +
+          // a real link, so phones open the Google Maps app; the href is refreshed as the finger lands (latest GPS fix)
+          '<a class="btn rg-dir" data-k="dir" href="' + esc(dirUrl(x.w)) + '" target="_blank" rel="noopener" title="Google Maps directions from where you are">Directions</a></span></div>';
       };
+      var dirUrl = function (w) { return GC.card.mapsUrl(cam.shapeOf(w) || { type: 'Point', coordinates: [w.lon, w.lat] }, [w.lon, w.lat]); };
+      var dirRow = function (a) { var r = a.closest('.rg-row'), x = r && list[+r.getAttribute('data-i')]; if (x) a.href = dirUrl(x.w); };
+      bodyEl.addEventListener('pointerdown', function (e) { var a = e.target.closest('[data-k=dir]'); if (a) dirRow(a); });
       var whoHtml = function (w) { return w.chk ? esc(w.chk.by) + '<small>' + esc(short(w.chk.t)) + '</small>' : '<small>Not checked</small>'; };
       var paintSel = function () {
         var n = Object.keys(st.sel).length, shownSel = list.filter(function (x) { return st.sel[rowKey(x)]; }).length;
@@ -181,6 +186,8 @@
           else { cam.setChecked(xx.l, xx.w, on); rr.classList.toggle('done', !!xx.w.chk); rr.querySelector('.rg-who').innerHTML = whoHtml(xx.w); paintCount(); }
           return;
         }
+        var d = e.target.closest('[data-k=dir]');
+        if (d) { if (navigator.onLine === false) { e.preventDefault(); GC.toast('Google Maps needs internet: try again when you have signal.', 'warn'); } else dirRow(d); return; }
         var b = e.target.closest('[data-k=view],[data-k=show]'); if (!b) return;
         var x = list[+b.closest('.rg-row').getAttribute('data-i')];
         if (b.getAttribute('data-k') === 'view' && x.w.photos && x.w.photos.length) { GC.photos.view(x.w.photos, 0, null, { name: x.w.name, lat: x.w.lat, lon: x.w.lon, note: x.w.note }); return; }

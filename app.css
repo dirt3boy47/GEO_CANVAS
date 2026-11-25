@@ -642,7 +642,7 @@ body.phone .cam-hero img { max-height: 28vh; }
 #modal .rg-tools input[type=search] { flex: 1 1 200px; width: auto; margin: 0; display: inline-block; }
 #modal .rg-tools select { width: auto; margin: 0; display: inline-block; }
 .rg-table { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 12px; -webkit-overflow-scrolling: touch; }
-.rg-row { display: grid; grid-template-columns: 46px 70px minmax(130px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 128px minmax(110px, 1fr) minmax(120px, 1.4fr) 64px; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); min-width: 980px; }
+.rg-row { display: grid; grid-template-columns: 46px 70px minmax(130px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 128px minmax(110px, 1fr) minmax(120px, 1.4fr) 64px; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); min-width: 1010px; }
 .rg-row:not(.rg-head) { box-shadow: inset 4px 0 0 var(--ic); }
 .rg-row.done { background: rgba(30, 142, 62, .07); }
 .rg-head { position: sticky; top: 0; z-index: 1; background: var(--panel-solid); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding-top: 9px; padding-bottom: 9px; }
@@ -666,7 +666,9 @@ body.phone .cam-hero img { max-height: 28vh; }
 .rg-taken { font-size: 13px; font-variant-numeric: tabular-nums; }
 .rg-who { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rg-note { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.rg-go { padding: 6px 10px; font-size: 13px; }
+.rg-go, .rg-dir { padding: 6px 10px; font-size: 13px; text-align: center; }
+.rg-gocell { display: flex; flex-direction: column; gap: 4px; }
+a.rg-dir { color: inherit; text-decoration: none; -webkit-touch-callout: none; white-space: nowrap; }
 .rg-empty { padding: 30px; text-align: center; color: var(--muted); }
 #modal.reg .actions { margin-top: 10px; align-items: center; }
 #modal.reg .actions .hint { margin: 0; }
@@ -680,7 +682,7 @@ body.phone .cam-hero img { max-height: 28vh; }
   .rg-row select[data-k=cat] { grid-area: cat; } .rg-row select[data-k=imp] { grid-area: imp; }
   .rg-taken { grid-area: taken; font-size: 12px; color: var(--muted); } .rg-who { grid-area: who; font-size: 12px; }
   .rg-who small { display: inline; margin-left: 4px; }
-  .rg-note { grid-area: note; } .rg-note:empty { display: none; } .rg-go { grid-area: go; }
+  .rg-note { grid-area: note; } .rg-note:empty { display: none; } .rg-gocell { grid-area: go; }
   #modal.reg .actions .hint { display: none; }
 }
 /* the checked tick on a photo point's card */
@@ -744,7 +746,7 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
 .ws-older { margin-top: 14px; } .ws-older summary { cursor: pointer; font-weight: 650; color: var(--muted); padding: 6px 2px; }
 .cloud-status.job, #cloud-status.job { color: #b07d00; }
 /* register: select column first, the checked tick sits in the Checked column */
-.rg-row { grid-template-columns: 40px 70px minmax(130px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 124px minmax(150px, 1.1fr) minmax(110px, 1.3fr) 64px; }
+.rg-row { grid-template-columns: 40px 70px minmax(130px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 124px minmax(150px, 1.1fr) minmax(110px, 1.3fr) 94px; }
 .rg-sel { display: grid; place-items: center; cursor: pointer; border: 0; background: none; padding: 0; color: inherit; min-height: 36px; -webkit-tap-highlight-color: transparent; }
 .rg-sel i { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel-solid); display: grid; place-items: center; }
 .rg-sel[aria-pressed=true] i { background: var(--accent); border-color: var(--accent); }
@@ -774,7 +776,8 @@ body.phone.nav-on #phone-add { bottom: calc(var(--pbar) + 164px); }
   #modal.reg .actions.rg-foot { margin-top: 8px; }
 }
 @media (max-width: 700px) {
-  .rg-row { grid-template-columns: 36px 76px 1fr 1fr; grid-template-areas: 'sel ph name name' 'sel ph cat imp' 'sel ph taken taken' 'chk chk chk go' 'note note note note'; }
+  .rg-row { grid-template-columns: 36px 76px 1fr 1fr; grid-template-areas: 'sel ph name name' 'sel ph cat imp' 'sel ph taken taken' 'chk chk go go' 'note note note note'; }
+  .rg-gocell { flex-direction: row; justify-content: flex-end; } .rg-gocell .btn { padding: 8px 12px; }
   .rg-sel { grid-area: sel; } .rg-chkcell { grid-area: chk; } .rg-chkcell .rg-who small { display: inline; margin-left: 4px; }
 }
 /* ---------- accounts (js/account.js) ---------- */
